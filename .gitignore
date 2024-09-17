@@ -2,3 +2,5 @@ vendor/
 .env
 .vscode/
 output
+out
+out.json
