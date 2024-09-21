@@ -30,7 +30,7 @@ func NewProClient(Addr string) (*ProClient, error) {
 func (c *ProClient) QeuryAppLatencyByMilli(ctx context.Context, destination_service string) (int64, error) {
 	logger := klog.FromContext(ctx)
 
-	// Construct query to get average end-to-end latency for a specific service over the past minute
+	// Construct query to get average end-to-end latency for a specific service over the past 2 minute
 	query := fmt.Sprintf(`sum by (app_name) (increase(mub_request_processing_latency_milliseconds_sum{app_name="%s"}[2m])) / sum by (app_name) (increase(mub_request_processing_latency_milliseconds_count{app_name="%s"}[2m]))`, destination_service, destination_service)
 
 	logger.V(5).Info("query statement", "query", query)
@@ -62,7 +62,7 @@ func (c *ProClient) QueryNodeBandwidthByMBytes(ctx context.Context, nodeAddress 
 	// 构造查询语句，获取指定节点eth0接口的带宽使用量（以字节/秒为单位）
 	query := fmt.Sprintf(`sum(rate(node_network_receive_bytes_total{device="eth0",instance="%s"}[1m]) + rate(node_network_transmit_bytes_total{device="eth0",instance="%s"}[1m]))`, nodeAddress, nodeAddress)
 
-	logger.V(2).Info("查询语句", "query", query)
+	logger.V(3).Info("查询语句", "query", query)
 
 	// 执行查询
 	result, warnings, err := c.prometheusClient.Query(ctx, query, time.Now())
@@ -85,7 +85,7 @@ func (c *ProClient) QueryNodeBandwidthByMBytes(ctx context.Context, nodeAddress 
 	// 将字节/秒转换为Mbps
 	bandwidthMbps := bandwidthBytesPerSecond
 
-	logger.V(1).Info("节点带宽使用量", "node", nodeAddress, "bandwidth", fmt.Sprintf("%d MBps", bandwidthMbps))
+	logger.V(3).Info("节点带宽使用量", "node", nodeAddress, "bandwidth", fmt.Sprintf("%d MBps", bandwidthMbps))
 
 	return bandwidthMbps, nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	resourcehelper "github.com/paprikaw/rscheduler/pkg/utils"
@@ -54,6 +55,7 @@ func NewMigrator(kubeconfig string, prometheusAddr string, appLabel string, gate
 
 func (m *Migrator) MigratePod(ctx context.Context, podName string, targetNode string) error {
 	logger := klog.FromContext(ctx)
+	logger.V(1).Info("开始迁移Pod", "podName", podName, "targetNode", targetNode)
 	// Get all nodes
 	nodes, err := m.clientset.CoreV1().Nodes().List(ctx, typev1.ListOptions{})
 	if err != nil {
@@ -75,7 +77,7 @@ func (m *Migrator) MigratePod(ctx context.Context, podName string, targetNode st
 	if _, ok := podMap[podName]; !ok {
 		return fmt.Errorf("target Pod does not exist: %s", podName)
 	}
-
+	logger.V(2).Info("开始设置节点为不可调度", "targetNode", targetNode)
 	// Iterate through all nodes, cordon all except the target node
 	for _, node := range nodes.Items {
 		if node.Name != targetNode {
@@ -84,11 +86,11 @@ func (m *Migrator) MigratePod(ctx context.Context, podName string, targetNode st
 			if err != nil {
 				logger.Error(err, "failed to set node as unschedulable", "node", node.Name)
 			} else {
-				logger.V(0).Info("successfully set node as unschedulable", "node", node.Name)
+				logger.V(2).Info("successfully set node as unschedulable", "node", node.Name)
 			}
 		}
 	}
-
+	logger.V(2).Info("开始驱逐Pod", "podName", podName)
 	// Evict the current pod
 	err = m.clientset.CoreV1().Pods(m.namespace).Evict(ctx, &v1beta1.Eviction{
 		ObjectMeta: typev1.ObjectMeta{
@@ -118,31 +120,30 @@ func (m *Migrator) MigratePod(ctx context.Context, podName string, targetNode st
 			}
 		}
 		if newPod == nil {
-			logger.V(0).Info("new Pod is not ready yet, waiting...")
+			logger.V(2).Info("new Pod is not ready yet, waiting...")
 			time.Sleep(3 * time.Second)
 			continue
 		} else {
-			logger.V(0).Info("new Pod has been successfully initialized", "podName", newPod.Name)
+			logger.V(1).Info("new Pod has been successfully initialized", "podName", newPod.Name)
 			break
 		}
 	}
 
 	// Restore all nodes to schedulable state
-
+	logger.V(1).Info("开始恢复节点为可调度", "targetNode", targetNode)
 	nodes, err = m.clientset.CoreV1().Nodes().List(ctx, typev1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get node list: %v", err)
 	}
 	for _, node := range nodes.Items {
-		fmt.Printf("node: %s\n is unschedulable: %v\n", node.Name, node.Spec.Unschedulable)
 		if node.Spec.Unschedulable {
-			logger.V(0).Info("restoring node to schedulable state", "node", node.Name)
+			logger.V(2).Info("restoring node to schedulable state", "node", node.Name)
 			node.Spec.Unschedulable = false
 			_, err := m.clientset.CoreV1().Nodes().Update(ctx, &node, typev1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to restore node to schedulable state: %v", err)
 			} else {
-				logger.V(0).Info("successfully restored node to schedulable state", "node", node.Name)
+				logger.V(2).Info("successfully restored node to schedulable state", "node", node.Name)
 			}
 		}
 	}
@@ -169,9 +170,9 @@ func (m *Migrator) GetClusterState(ctx context.Context) (*ClusterState, error) {
 		}
 		Nodes[node.Name] = Node{
 			NodeName:           node.Name,
-			CPUAvailability:    node.Status.Allocatable.Cpu().MilliValue() - cpuReqs.MilliValue(),
-			MemoryAvailability: node.Status.Allocatable.Memory().Value() - memoryReqs.Value(),
-			BandwidthUsage:     bandwidth,
+			CPUAvailability:    float64(node.Status.Allocatable.Cpu().MilliValue() - cpuReqs.MilliValue()),
+			MemoryAvailability: float64(node.Status.Allocatable.Memory().Value()-memoryReqs.Value()) / (1024 * 1024 * 1024),
+			BandwidthUsage:     float64(bandwidth),
 		}
 	}
 
@@ -179,36 +180,45 @@ func (m *Migrator) GetClusterState(ctx context.Context) (*ClusterState, error) {
 	if err != nil {
 		return nil, err
 	}
-	Pods := make(map[string]Pod, len(pods.Items))
+
+	Services := make(map[string]Service, len(pods.Items))
 	for _, pod := range pods.Items {
-		Pods[pod.Name] = Pod{
+		// 从pod.Name中提取serviceName
+		serviceName := pod.Name
+		if parts := strings.Split(pod.Name, "-"); len(parts) > 2 {
+			serviceName = strings.Join(parts[:len(parts)-2], "-")
+		}
+		if _, ok := Services[serviceName]; !ok {
+			Services[serviceName] = Service{ServiceName: serviceName, Pods: []Pod{}}
+		}
+		service := Services[serviceName]
+		service.Pods = append(service.Pods, Pod{
 			NodeName: pod.Spec.NodeName,
 			PodName:  pod.Name,
-		}
+		})
+		Services[serviceName] = service
 	}
 	clusterState := &ClusterState{
-		Nodes: Nodes,
-		Pods:  Pods,
+		Nodes:    Nodes,
+		Services: Services,
 	}
 	logger.V(5).Info("当前集群状态", "state", clusterState)
 	return clusterState, nil
 }
-func (m *Migrator) GetPodsAvailableNodes(ctx context.Context) ([]PodDeployable, error) {
+
+func (m *Migrator) GetPodsAvailableNodes(ctx context.Context) (PodDeployable, error) {
 	logger := klog.FromContext(ctx)
 	podList, err := m.getPods(ctx)
 	if err != nil {
 		return nil, err
 	}
-	podDeployable := []PodDeployable{}
+	podDeployable := make(PodDeployable)
 	for _, pod := range podList.Items {
 		availableNodes, err := m.getAvailableNodesForPod(ctx, &pod)
 		if err != nil {
 			return nil, err
 		}
-		podDeployable = append(podDeployable, PodDeployable{
-			PodName:   pod.Name,
-			NodeNames: availableNodes,
-		})
+		podDeployable[pod.Name] = availableNodes
 	}
 	logger.V(5).Info("当前pod可部署节点", "state", podDeployable)
 	return podDeployable, nil
@@ -245,8 +255,6 @@ func (m *Migrator) filterNodesByResources(ctx context.Context, pod *v1core.Pod, 
 		unavailable_resources := noderesources.Fits(pod, nodeInfo)
 		if len(unavailable_resources) == 0 {
 			feasibleNodes = append(feasibleNodes, &node)
-		} else {
-			return nil, fmt.Errorf("node %s has insufficient resources", node.Name)
 		}
 	}
 
