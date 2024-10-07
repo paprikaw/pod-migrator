@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-container
+  namespace: default
+  labels:
+    app: dev-container
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-container
+  template:
+    metadata:
+      labels:
+        app: dev-container
+    spec:
+      containers:
+      - name: dev-container
+        image: paprikaw/baseline-rescheduler:dev
+        ports:
+        - containerPort: 22
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-container-service
+spec:
+  type: NodePort
+  selector:
+    app: dev-container
+  ports:
+  - protocol: TCP
+    port: 22
+    targetPort: 22
+    nodePort: 30222  # NodePort 范围 30000-32767，可以根据实际情况调整

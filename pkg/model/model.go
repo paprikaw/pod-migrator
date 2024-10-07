@@ -1,4 +1,4 @@
-package main
+package model
 
 // Node 结构体定义
 type Node struct {
@@ -29,6 +29,8 @@ type Service struct {
 type ClusterState struct {
 	Nodes    map[string]Node    `json:"nodes"`
 	Services map[string]Service `json:"services"`
+	Latency  float64            `json:"latency"`
+	// CurLatency float64            `json:"cur_latency"`
 }
 type PodDeployable map[string][]string
 type Request struct {
@@ -40,4 +42,14 @@ type Response struct {
 	PodName    string `json:"pod_name"`
 	TargetNode string `json:"target_node"`
 	IsStop     bool   `json:"is_stop"`
+}
+
+type TraceResponse struct {
+	Data []struct {
+		TraceID string `json:"traceID"`
+		Spans   []struct {
+			StartTime int64 `json:"startTime"`
+			Duration  int64 `json:"duration"`
+		} `json:"spans"`
+	} `json:"data"`
 }

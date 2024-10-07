@@ -2,49 +2,55 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
-	"strconv"
+	"io"
+	"log"
+	"net/http"
 	"time"
 
 	"github.com/joho/godotenv"
+	m "github.com/paprikaw/rscheduler/pkg/migrator"
+	d "github.com/paprikaw/rscheduler/pkg/model"
+	q "github.com/paprikaw/rscheduler/pkg/queryclient"
 	"k8s.io/klog/v2"
 )
 
-func monitor(ctx context.Context, migrator *Migrator, httpClient *HttpClient) {
+var latestTraceTimestamp int64 = 0
+var estimatedRT float64 = 0.0
+
+func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient) {
 	// Import necessary packages
 	interval := 3 * time.Second // Set monitoring interval to 5 minutes
 	logger := klog.FromContext(ctx)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	qosThreshold := migrator.qosThreshold
 	for {
 		ticker.Reset(interval)
 		select {
 		case <-ticker.C:
-			latency, err := migrator.proClient.QeuryAppLatencyByMilli(ctx, "client")
-			if err != nil {
-				logger.Error(err, "Failed to query application latency")
-				continue
-			}
-			logger.V(1).Info("----------Monitoring process starts----------")
-			if latency > int64(qosThreshold) {
-				logger.V(1).Info("Current latency", "latency", latency)
-				response, err := httpClient.getMigrationResult(ctx, migrator)
+			latency := estimatedRT
+			logger.V(0).Info("----------Monitoring process starts----------")
+			if latency > config.QosThreshold {
+				logger.V(0).Info("Current latency", "latency", latency)
+				response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator, latency)
 				if err != nil {
 					logger.Error(err, "Failed to get migration result")
 					continue
 				}
 				if response.IsStop {
-					logger.V(1).Info("Skip this migration")
+					logger.V(0).Info("Skip this migration")
 					continue
 				}
-				err = migrator.MigratePod(ctx, response.PodName, response.TargetNode)
+
+				err = migrator.MigratePod(ctx, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
 				if err != nil {
 					logger.Error(err, "Failed to migrate Pod")
 					continue
 				}
+			} else {
+				logger.V(0).Info("Current latency is within the threshold", "latency", latency)
 			}
 		case <-ctx.Done():
 			return
@@ -52,41 +58,96 @@ func monitor(ctx context.Context, migrator *Migrator, httpClient *HttpClient) {
 	}
 }
 
+func getLatestTrace(ctx context.Context, config *Config) {
+	logger := klog.FromContext(ctx)
+	// Build the request URL with parameters
+	url := fmt.Sprintf("%s?service=%s&limit=%d&lookback=%s", config.URL, config.ServiceName, config.Limit, config.Lookback)
+
+	// 发送 HTTP 请求
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.Error(err, "Error fetching trace")
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取响应数据
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Error(err, "Error reading response body")
+		return
+	}
+
+	// 解析 JSON 响应
+	var traceResponse d.TraceResponse
+	err = json.Unmarshal(body, &traceResponse)
+	if err != nil {
+		log.Println("Error parsing JSON:", err)
+		return
+	}
+
+	// 检查是否有数据
+	if len(traceResponse.Data) == 0 || len(traceResponse.Data[0].Spans) == 0 {
+		log.Println("No trace data found")
+		return
+	}
+
+	// 获取最新的 trace 数据
+	latestTrace := traceResponse.Data[0]
+	traceStartTime := latestTrace.Spans[0].StartTime
+	traceDuration := latestTrace.Spans[0].Duration
+
+	// 如果该 trace 是新的，则更新移动平均值
+	if traceStartTime > latestTraceTimestamp {
+		latestTraceTimestamp = traceStartTime
+		// 将新的 Sample RT 加入移动平均计算中
+		sampleRT := float64(traceDuration) / 1000.0 // 将微秒转换为毫秒
+		if estimatedRT == 0 {
+			estimatedRT = sampleRT
+		} else {
+			estimatedRT = (1-config.Alpha)*estimatedRT + config.Alpha*sampleRT
+		}
+		logger.V(3).Info(fmt.Sprintf("New trace received. Duration: %.2f ms, Updated Estimated RT: %.2f ms", sampleRT, estimatedRT))
+	}
+}
 func main() {
 	// Initialize klog
 	klog.InitFlags(nil)
 	flag.Parse()
 	logger := klog.NewKlogr()
 	ctx := klog.NewContext(context.Background(), logger)
-	err := godotenv.Load()
-	if err != nil {
-		logger.Error(err, "Error loading .env file")
-	}
 
 	// Load cluster configuration and initialize kubernetes client
-	kubeconfig := os.Getenv("KUBECONFIG")
-	prometheusAddr := os.Getenv("PROMETHEUS_ADDR")
-	appLabel := os.Getenv("APP_LABEL")
-	gatewayService := os.Getenv("GATEWAY_SERVICE")
-	namespace := os.Getenv("NAMESPACE")
-	qosThreshold, err := strconv.Atoi(os.Getenv("QOS_THRESHOLD"))
+	err := godotenv.Load()
 	if err != nil {
-		logger.Error(err, "QOS_THRESHOLD is not a valid integer")
+		fmt.Println("Error loading .env:", err)
 		return
 	}
-	migrator, err := NewMigrator(kubeconfig, prometheusAddr, appLabel, gatewayService, namespace, qosThreshold)
+	config, err := ConfigFromEnv()
+	if err != nil {
+		fmt.Println("Error loading config:", err)
+		return
+	}
+	go func() {
+		for {
+			getLatestTrace(ctx, config)
+			time.Sleep(config.PollingPeriod)
+		}
+	}()
+	migrator, err := m.NewMigrator(config.KubeConfigPath)
 	if err != nil {
 		fmt.Println("Error creating migrator:", err)
 		return
 	}
-	httpClient := NewHttpClient(10 * time.Second)
-	monitor(ctx, migrator, httpClient)
-	// // monitor(ctx, migrator)
-	// oldPodName := "detection-7f78df9988-qmwp7"
-	// // err = migrator.MigratePod(ctx, "detection", oldPodName, "tb-cloud-vm1")
-	// err = migrator.MigratePod(ctx, "detection", oldPodName, "tb-edge-vm1")
-	// if err != nil {
-	// 	fmt.Print(err, "Error migrating pod")
-	// 	return
-	// }
+
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	queryClient, err := q.NewQueryClient(config.PrometheusAddr, config.KubeConfigPath)
+	if err != nil {
+		fmt.Println("Error creating query client:", err)
+		return
+	}
+	// Start Monitoring Loop
+	monitor(ctx, config, migrator, httpClient, queryClient)
 }
