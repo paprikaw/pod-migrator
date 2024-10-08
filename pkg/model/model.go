@@ -5,7 +5,7 @@ type Node struct {
 	NodeName           string  `json:"node_name"`
 	CPUAvailability    float64 `json:"cpu_availability"`
 	MemoryAvailability float64 `json:"memory_availability"`
-	BandwidthUsage     float64 `json:"bandwidth_usage"`
+	// BandwidthUsage     float64 `json:"bandwidth_usage"`
 	// Bandwidth          float32 `json:"bandwidth"`
 	// Layer              int32   `json:"layer"`
 	// CPUType            int32   `json:"cpu_type"`
@@ -29,7 +29,7 @@ type Service struct {
 type ClusterState struct {
 	Nodes    map[string]Node    `json:"nodes"`
 	Services map[string]Service `json:"services"`
-	Latency  float64            `json:"latency"`
+	// LayerLatency float64            `json:"layer_latency"`
 	// CurLatency float64            `json:"cur_latency"`
 }
 type PodDeployable map[string][]string

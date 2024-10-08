@@ -21,7 +21,6 @@ func GetRequest(ctx context.Context, config *Config, queryClient *q.QueryClient,
 	if err != nil {
 		return nil, err
 	}
-	clusterState.Latency = latency
 	podDeployable, err := queryClient.GetPodsAvailableNodes(ctx, config.Namespace, config.AppLabel)
 	if err != nil {
 		return nil, err
@@ -79,11 +78,6 @@ func GetClusterState(ctx context.Context, config *Config, queryClient *q.QueryCl
 	}
 	Nodes := make(map[string]d.Node, len(nodes.Items))
 	for _, node := range nodes.Items {
-		address := node.Status.Addresses[0].Address + ":9100"
-		bandwidth, err := queryClient.QueryNodeBandwidthByMBytes(ctx, address)
-		if err != nil {
-			return nil, err
-		}
 		cpuReqs, memoryReqs, err := queryClient.GetNodeTotalRequests(ctx, &node)
 		if err != nil {
 			return nil, err
@@ -92,7 +86,6 @@ func GetClusterState(ctx context.Context, config *Config, queryClient *q.QueryCl
 			NodeName:           node.Name,
 			CPUAvailability:    float64(node.Status.Allocatable.Cpu().MilliValue() - cpuReqs.MilliValue()),
 			MemoryAvailability: float64(node.Status.Allocatable.Memory().Value()-memoryReqs.Value()) / (1024 * 1024 * 1024),
-			BandwidthUsage:     float64(bandwidth),
 		}
 	}
 
