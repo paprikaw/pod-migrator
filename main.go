@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,11 +19,30 @@ import (
 )
 
 var latestTraceTimestamp int64 = 0
-var estimatedRT float64 = 0.0
+var monitorStartTime time.Time = time.Now()
+
+type EstimatedRT struct {
+	mu    sync.RWMutex
+	value float64
+}
+
+func (e *EstimatedRT) Get() float64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.value
+}
+
+func (e *EstimatedRT) Set(val float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.value = val
+}
+
+var estimatedRT = &EstimatedRT{value: 0.0}
 
 func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient) {
 	// Import necessary packages
-	interval := 3 * time.Second // Set monitoring interval to 5 minutes
+	interval := 10 * time.Second // Set monitoring interval to 5 minutes
 	logger := klog.FromContext(ctx)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -30,7 +50,7 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 		ticker.Reset(interval)
 		select {
 		case <-ticker.C:
-			latency := estimatedRT
+			latency := estimatedRT.Get()
 			logger.V(0).Info("----------Monitoring process starts----------")
 			if latency > config.QosThreshold {
 				logger.V(0).Info("Current latency", "latency", latency)
@@ -96,18 +116,23 @@ func getLatestTrace(ctx context.Context, config *Config) {
 	latestTrace := traceResponse.Data[0]
 	traceStartTime := latestTrace.Spans[0].StartTime
 	traceDuration := latestTrace.Spans[0].Duration
-
+	if traceStartTime/1000 < monitorStartTime.UnixMilli() {
+		logger.V(3).Info(fmt.Sprintf("Trace is outdated. Trace start time: %d, Monitor start time: %d", traceStartTime, monitorStartTime.UnixMilli()))
+		return
+	}
 	// 如果该 trace 是新的，则更新移动平均值
 	if traceStartTime > latestTraceTimestamp {
 		latestTraceTimestamp = traceStartTime
 		// 将新的 Sample RT 加入移动平均计算中
 		sampleRT := float64(traceDuration) / 1000.0 // 将微秒转换为毫秒
-		if estimatedRT == 0 {
-			estimatedRT = sampleRT
+		result := 0.0
+		if estimatedRT.Get() == 0 {
+			result = sampleRT
 		} else {
-			estimatedRT = (1-config.Alpha)*estimatedRT + config.Alpha*sampleRT
+			result = (1-config.Alpha)*estimatedRT.Get() + config.Alpha*sampleRT
 		}
-		logger.V(3).Info(fmt.Sprintf("New trace received. Duration: %.2f ms, Updated Estimated RT: %.2f ms", sampleRT, estimatedRT))
+		logger.V(3).Info(fmt.Sprintf("New trace received. Duration: %.2f ms, Updated Estimated RT: %.2f ms", sampleRT, result))
+		estimatedRT.Set(result)
 	}
 }
 func main() {
