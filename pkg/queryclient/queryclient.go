@@ -15,6 +15,7 @@ import (
 	typev1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	throttles "k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
@@ -34,6 +35,7 @@ func NewQueryClient(PromeAddr string, kubeConfigPath string) (*QueryClient, erro
 	}
 
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	config.RateLimiter = throttles.NewTokenBucketRateLimiter(100, 300)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load kubeconfig: %v", err)
 	}
@@ -112,8 +114,12 @@ func (c *QueryClient) GetPodsAvailableNodes(ctx context.Context, namespace strin
 		return nil, err
 	}
 	podDeployable := make(d.PodDeployable)
+	nodes, err := c.GetNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, pod := range podList.Items {
-		availableNodes, err := c.getAvailableNodesForPod(ctx, &pod)
+		availableNodes, err := c.getAvailableNodesForPod(ctx, &pod, nodes)
 		if err != nil {
 			return nil, err
 		}
@@ -154,11 +160,7 @@ func (c *QueryClient) filterNodesByResources(ctx context.Context, pod *v1core.Po
 
 	return feasibleNodes, nil
 }
-func (c *QueryClient) getAvailableNodesForPod(ctx context.Context, pod *v1core.Pod) ([]string, error) {
-	nodes, err := c.GetNodes(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (c *QueryClient) getAvailableNodesForPod(ctx context.Context, pod *v1core.Pod, nodes *v1core.NodeList) ([]string, error) {
 	res := []string{}
 	// Iterate through all nodes, check if the Pod can be scheduled to that node
 	available_nodes, err := c.filterNodesByResources(ctx, pod, nodes)

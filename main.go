@@ -15,11 +15,13 @@ import (
 	m "github.com/paprikaw/rscheduler/pkg/migrator"
 	d "github.com/paprikaw/rscheduler/pkg/model"
 	q "github.com/paprikaw/rscheduler/pkg/queryclient"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 )
 
 var latestTraceTimestamp int64 = 0
 var monitorStartTime time.Time = time.Now()
+var maxPodWaitingRetries = 100
 
 type EstimatedRT struct {
 	mu    sync.RWMutex
@@ -39,6 +41,60 @@ func (e *EstimatedRT) Set(val float64) {
 }
 
 var estimatedRT = &EstimatedRT{value: 0.0}
+var maxReplicasSize int32 = 3
+
+func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, maxStep int) error {
+	logger := klog.FromContext(ctx)
+	retries := 0
+	for retries < maxPodWaitingRetries {
+		podList, err := queryClient.GetPods(ctx, config.Namespace, config.AppLabel)
+		if err != nil {
+			logger.Error(err, "无法获取 Pods 列表")
+			return err
+		}
+		podsReady := true
+		for _, pod := range podList.Items {
+			// 检查 Pod 是否处于 Running 且 Ready 状态
+			if pod.Status.Phase == corev1.PodRunning {
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status != corev1.ConditionTrue {
+						podsReady = false
+						break
+					}
+				}
+			}
+		}
+		if podsReady {
+			break
+		}
+		logger.V(1).Info("Waiting for pods to be ready", "retries", retries)
+		time.Sleep(1 * time.Second)
+		retries++
+	}
+	step := 0
+	for step < maxStep {
+		latency := estimatedRT.Get()
+		logger.V(1).Info("----------Rescheduling process starts----------")
+		logger.V(1).Info("Current latency", "latency", latency)
+		response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator, latency)
+		if err != nil {
+			logger.Error(err, "Failed to get migration result")
+			continue
+		}
+		if response.IsStop {
+			logger.V(1).Info("Stop the migration")
+			break
+		}
+		err = migrator.MigratePod(ctx, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
+		if err != nil {
+			logger.Error(err, "Failed to migrate Pod")
+			continue
+		}
+	}
+	time.Sleep(5 * time.Second)
+	logger.V(0).Info(fmt.Sprintf("%.2f", estimatedRT.Get()))
+	return nil
+}
 
 func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient) {
 	// Import necessary packages
@@ -51,16 +107,16 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 		select {
 		case <-ticker.C:
 			latency := estimatedRT.Get()
-			logger.V(0).Info("----------Monitoring process starts----------")
+			logger.V(1).Info("----------Monitoring process starts----------")
 			if latency > config.QosThreshold {
-				logger.V(0).Info("Current latency", "latency", latency)
+				logger.V(1).Info("Current latency", "latency", latency)
 				response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator, latency)
 				if err != nil {
 					logger.Error(err, "Failed to get migration result")
 					continue
 				}
 				if response.IsStop {
-					logger.V(0).Info("Skip this migration")
+					logger.V(1).Info("Skip this migration")
 					continue
 				}
 
@@ -70,7 +126,7 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 					continue
 				}
 			} else {
-				logger.V(0).Info("Current latency is within the threshold", "latency", latency)
+				logger.V(1).Info("Current latency is within the threshold", "latency", latency)
 			}
 		case <-ctx.Done():
 			return
@@ -116,10 +172,13 @@ func getLatestTrace(ctx context.Context, config *Config) {
 	latestTrace := traceResponse.Data[0]
 	traceStartTime := latestTrace.Spans[0].StartTime
 	traceDuration := latestTrace.Spans[0].Duration
-	if traceStartTime/1000 < monitorStartTime.UnixMilli() {
+
+	// 如果 trace 是旧的，则跳过
+	if traceStartTime/1000 < monitorStartTime.UnixMilli() || traceStartTime < time.Now().UnixMilli()-10*time.Second.Milliseconds() {
 		logger.V(3).Info(fmt.Sprintf("Trace is outdated. Trace start time: %d, Monitor start time: %d", traceStartTime, monitorStartTime.UnixMilli()))
 		return
 	}
+
 	// 如果该 trace 是新的，则更新移动平均值
 	if traceStartTime > latestTraceTimestamp {
 		latestTraceTimestamp = traceStartTime
@@ -131,13 +190,15 @@ func getLatestTrace(ctx context.Context, config *Config) {
 		} else {
 			result = (1-config.Alpha)*estimatedRT.Get() + config.Alpha*sampleRT
 		}
-		logger.V(3).Info(fmt.Sprintf("New trace received. Duration: %.2f ms, Updated Estimated RT: %.2f ms", sampleRT, result))
+		logger.V(2).Info(fmt.Sprintf("New trace received. Duration: %.2f ms, Updated Estimated RT: %.2f ms", sampleRT, result))
 		estimatedRT.Set(result)
 	}
 }
 func main() {
 	// Initialize klog
 	klog.InitFlags(nil)
+	is_tester := flag.Bool("test", false, "Whether to run in test mode")
+	max_step := flag.Int("max_step", 15, "Maximum number of steps to run")
 	flag.Parse()
 	logger := klog.NewKlogr()
 	ctx := klog.NewContext(context.Background(), logger)
@@ -173,6 +234,12 @@ func main() {
 		fmt.Println("Error creating query client:", err)
 		return
 	}
-	// Start Monitoring Loop
-	monitor(ctx, config, migrator, httpClient, queryClient)
+	if *is_tester {
+		// Start Monitoring Loop
+		startOneReschedulingEpisodeBestEffort(ctx, config, migrator, httpClient, queryClient, *max_step)
+	} else {
+		// Start Monitoring Loop
+		monitor(ctx, config, migrator, httpClient, queryClient)
+	}
+
 }
