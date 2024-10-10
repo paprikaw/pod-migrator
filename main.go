@@ -21,6 +21,7 @@ import (
 var latestTraceTimestamp int64 = 0
 var monitorStartTime time.Time = time.Now()
 var maxPodWaitingRetries = 100
+var replicaCnt int32 = 2
 
 type EstimatedRT struct {
 	mu    sync.RWMutex
@@ -77,7 +78,7 @@ func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, 
 			logger.V(1).Info("Stop the migration")
 			break
 		}
-		err = migrator.MigratePod(ctx, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
+		err = migrator.MigratePod(ctx, config.Namespace, response.PodName, config.AppLabel, response.TargetNode, replicaCnt)
 		if err != nil {
 			logger.Error(err, "Failed to migrate Pod")
 			continue
@@ -114,7 +115,7 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 					continue
 				}
 
-				err = migrator.MigratePod(ctx, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
+				err = migrator.MigratePod(ctx, config.Namespace, response.PodName, config.AppLabel, response.TargetNode, replicaCnt)
 				if err != nil {
 					logger.Error(err, "Failed to migrate Pod")
 					continue
