@@ -40,7 +40,8 @@ func (e *EstimatedRT) Set(val float64) {
 }
 
 var estimatedRT = &EstimatedRT{value: 0.0}
-var maxReplicasSize int32 = 3
+var startWaitingTime = 10 * time.Second
+var endWaitingTime = 10 * time.Second
 
 func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, maxStep int) error {
 	logger := klog.FromContext(ctx)
@@ -59,6 +60,9 @@ func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, 
 		time.Sleep(1 * time.Second)
 		retries++
 	}
+	estimatedRT.Set(0)
+	time.Sleep(startWaitingTime)
+	start_latency := estimatedRT.Get()
 	step := 0
 	for step < maxStep {
 		latency := estimatedRT.Get()
@@ -81,8 +85,8 @@ func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, 
 		step++
 	}
 	estimatedRT.Set(0)
-	time.Sleep(10 * time.Second)
-	logger.V(0).Info(fmt.Sprintf("%.2f %d", estimatedRT.Get(), step))
+	time.Sleep(endWaitingTime)
+	logger.V(0).Info(fmt.Sprintf("%.2f %.2f %d", start_latency, estimatedRT.Get(), step))
 	return nil
 }
 

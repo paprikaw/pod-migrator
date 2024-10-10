@@ -1,0 +1,277 @@
+I1010 01:35:12.329541  421117 main.go:90] "240.13 194.38 1"
+I1010 01:35:57.533990  421635 main.go:90] "289.53 186.81 2"
+I1010 01:36:30.816041  422233 main.go:90] "340.79 241.61 1"
+I1010 01:37:11.544882  422735 main.go:90] "0.00 163.37 2"
+I1010 01:37:47.923331  423310 main.go:90] "303.55 210.16 1"
+I1010 01:38:33.017329  423852 main.go:90] "164.87 201.95 2"
+I1010 01:39:00.810721  424420 main.go:90] "510.99 179.69 0"
+I1010 01:39:31.315115  424941 main.go:90] "166.94 240.03 0"
+signal: interrupt
+I1010 02:15:27.050418  439341 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:15:28.086610  439341 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:15:29.116269  439341 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:15:30.125302  439341 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:15:31.134925  439341 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:15:32.146370  439341 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:15:33.157216  439341 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:15:34.169962  439341 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:15:35.183682  439341 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:15:36.213813  439341 main.go:56] "Pods are ready"
+signal: interrupt
+Command 'go' not found, but can be installed with:
+sudo snap install go         # version 1.23.2, or
+sudo apt  install golang-go  # version 2:1.18~0ubuntu2
+sudo apt  install gccgo-go   # version 2:1.18~0ubuntu2
+See 'snap info go' for additional versions.
+I1010 02:18:00.067210  440319 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:18:01.077655  440319 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:18:02.166105  440319 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:18:03.177688  440319 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:18:04.187341  440319 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:18:05.197423  440319 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:18:06.207734  440319 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:18:07.225316  440319 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:18:08.258916  440319 main.go:56] "Pods are ready"
+I1010 02:18:18.259317  440319 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:18:18.259395  440319 main.go:70] "Current latency" latency=262.48207074999993
+I1010 02:18:19.183149  440319 main.go:77] "Stop the migration"
+I1010 02:18:29.183618  440319 main.go:89] "262.48 212.83 0"
+I1010 02:18:35.105821  440679 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:18:36.117059  440679 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:18:37.127830  440679 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:18:38.137688  440679 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:18:39.149603  440679 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:18:40.169286  440679 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:18:41.189406  440679 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:18:42.200334  440679 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:18:43.210507  440679 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:18:44.239434  440679 main.go:59] "Waiting for pods to be ready" retries=9
+I1010 02:18:45.265741  440679 main.go:56] "Pods are ready"
+I1010 02:18:55.265850  440679 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:18:55.266006  440679 main.go:70] "Current latency" latency=237.89727233799994
+I1010 02:18:56.189914  440679 main.go:77] "Stop the migration"
+signal: interrupt
+I1010 02:20:21.073603  441261 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:20:22.087268  441261 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:20:23.449562  441261 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:20:24.463292  441261 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:20:25.479426  441261 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:20:26.499319  441261 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:20:27.526724  441261 main.go:56] "Pods are ready"
+I1010 02:20:37.526923  441261 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:20:37.526998  441261 main.go:70] "Current latency" latency=309.5067182795101
+I1010 02:20:38.671745  441261 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-ksw5b" targetNode="tb-edge-vm-4-1"
+I1010 02:20:43.822056  441261 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-g7wmz"
+I1010 02:20:44.836385  441261 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-g7wmz"
+I1010 02:20:44.836620  441261 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-1"
+I1010 02:20:44.900703  441261 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:20:44.900746  441261 main.go:70] "Current latency" latency=269.53618792526436
+I1010 02:20:45.824940  441261 main.go:77] "Stop the migration"
+I1010 02:20:55.825398  441261 main.go:89] "309.51 217.70 1"
+I1010 02:21:01.407711  441661 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:21:02.423170  441661 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:21:03.432178  441661 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:21:04.443802  441661 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:21:05.460585  441661 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:21:06.493336  441661 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:21:07.513760  441661 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:21:08.536167  441661 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:21:09.556201  441661 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:21:10.576031  441661 main.go:59] "Waiting for pods to be ready" retries=9
+I1010 02:21:11.649905  441661 main.go:59] "Waiting for pods to be ready" retries=10
+I1010 02:21:12.671563  441661 main.go:59] "Waiting for pods to be ready" retries=11
+I1010 02:21:13.701446  441661 main.go:56] "Pods are ready"
+I1010 02:21:23.702063  441661 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:21:23.702154  441661 main.go:70] "Current latency" latency=197.20912750821606
+I1010 02:21:24.682760  441661 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-527zs" targetNode="tb-edge-vm-4-2"
+I1010 02:21:29.946375  441661 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-pt6zz"
+I1010 02:21:30.958366  441661 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-pt6zz"
+I1010 02:21:30.958429  441661 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-2"
+I1010 02:21:31.022491  441661 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:21:31.022568  441661 main.go:70] "Current latency" latency=194.90835116328492
+I1010 02:21:31.846357  441661 main.go:77] "Stop the migration"
+I1010 02:21:41.846875  441661 main.go:89] "197.21 215.37 1"
+I1010 02:21:46.954226  442066 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:21:47.971599  442066 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:21:48.981111  442066 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:21:49.991520  442066 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:21:51.577557  442066 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:21:52.588672  442066 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:21:53.599803  442066 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:21:54.610001  442066 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:21:55.640217  442066 main.go:56] "Pods are ready"
+I1010 02:22:05.640577  442066 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:22:05.640812  442066 main.go:70] "Current latency" latency=128.33359075355708
+I1010 02:22:06.500665  442066 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-tthsc" targetNode="tb-edge-vm-4-2"
+I1010 02:22:11.638664  442066 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-xmccr"
+I1010 02:22:12.652983  442066 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-xmccr"
+I1010 02:22:12.653031  442066 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-2"
+I1010 02:22:12.716326  442066 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:22:12.716374  442066 main.go:70] "Current latency" latency=266.6367847076956
+I1010 02:22:13.584235  442066 main.go:77] "Stop the migration"
+I1010 02:22:23.585097  442066 main.go:89] "128.33 228.47 1"
+I1010 02:22:30.102431  442393 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:22:31.114667  442393 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:22:32.126683  442393 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:22:33.140553  442393 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:22:34.155473  442393 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:22:35.172319  442393 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:22:36.189362  442393 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:22:37.203243  442393 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:22:38.228867  442393 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:22:39.256101  442393 main.go:56] "Pods are ready"
+I1010 02:22:49.256244  442393 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:22:49.256343  442393 main.go:70] "Current latency" latency=297.00240069047993
+I1010 02:22:50.836241  442393 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-8rfns" targetNode="tb-cloud-vm-8-2"
+I1010 02:22:54.981694  442393 migrator.go:205] "old Pod is removed yet, waiting..." podName="db-6c4d958f76-nhd8m"
+I1010 02:22:55.996502  442393 migrator.go:207] "new Pod has been successfully initialized" podName="db-6c4d958f76-nhd8m"
+I1010 02:22:55.996547  442393 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-cloud-vm-8-2"
+I1010 02:22:56.047403  442393 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:22:56.047447  442393 main.go:70] "Current latency" latency=244.51708013483426
+I1010 02:22:56.906393  442393 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-h95jm" targetNode="tb-cloud-vm-8-2"
+I1010 02:23:01.039705  442393 migrator.go:205] "old Pod is removed yet, waiting..." podName="db-6c4d958f76-j6x7r"
+I1010 02:23:02.051733  442393 migrator.go:207] "new Pod has been successfully initialized" podName="db-6c4d958f76-j6x7r"
+I1010 02:23:02.051778  442393 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-cloud-vm-8-2"
+I1010 02:23:02.098094  442393 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:23:02.098142  442393 main.go:70] "Current latency" latency=216.8364229382616
+I1010 02:23:03.048450  442393 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-h95jm" targetNode="tb-cloud-vm-8-1"
+E1010 02:23:03.055768  442393 main.go:82] "Failed to migrate Pod" err="target Pod does not exist: db-6c4d958f76-h95jm"
+I1010 02:23:03.055798  442393 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:23:03.055811  442393 main.go:70] "Current latency" latency=201.6160960567831
+I1010 02:23:03.846321  442393 main.go:77] "Stop the migration"
+I1010 02:23:13.846404  442393 main.go:89] "297.00 245.86 2"
+I1010 02:23:19.539081  442722 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:23:20.562311  442722 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:23:21.714962  442722 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:23:22.725481  442722 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:23:23.746019  442722 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:23:24.756629  442722 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:23:25.791809  442722 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:23:26.825055  442722 main.go:56] "Pods are ready"
+I1010 02:23:36.825884  442722 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:23:36.825963  442722 main.go:70] "Current latency" latency=192.21136183042896
+I1010 02:23:37.788350  442722 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-vqcsg" targetNode="tb-edge-vm-4-2"
+I1010 02:23:42.940035  442722 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-7j7fl"
+I1010 02:23:43.954137  442722 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-7j7fl"
+I1010 02:23:43.954183  442722 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-2"
+I1010 02:23:44.022430  442722 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:23:44.022478  442722 main.go:70] "Current latency" latency=261.34400032284015
+I1010 02:23:45.174637  442722 main.go:77] "Stop the migration"
+I1010 02:23:55.175144  442722 main.go:89] "192.21 215.87 1"
+I1010 02:24:00.618966  443035 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:24:01.629006  443035 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:24:02.641251  443035 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:24:03.653332  443035 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:24:04.674073  443035 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:24:05.684925  443035 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:24:06.697298  443035 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:24:07.721626  443035 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:24:08.747052  443035 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:24:09.774645  443035 main.go:59] "Waiting for pods to be ready" retries=9
+I1010 02:24:10.802467  443035 main.go:59] "Waiting for pods to be ready" retries=10
+I1010 02:24:11.831568  443035 main.go:59] "Waiting for pods to be ready" retries=11
+I1010 02:24:12.865021  443035 main.go:56] "Pods are ready"
+I1010 02:24:22.865753  443035 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:24:22.865834  443035 main.go:70] "Current latency" latency=255.48674654752557
+I1010 02:24:23.884001  443035 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-9lwd8" targetNode="tb-cloud-vm-8-1"
+I1010 02:24:28.016517  443035 migrator.go:205] "old Pod is removed yet, waiting..." podName="db-6c4d958f76-mf56x"
+I1010 02:24:29.027869  443035 migrator.go:207] "new Pod has been successfully initialized" podName="db-6c4d958f76-mf56x"
+I1010 02:24:29.027901  443035 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-cloud-vm-8-1"
+I1010 02:24:29.079246  443035 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:24:29.079293  443035 main.go:70] "Current latency" latency=235.70994257849884
+I1010 02:24:29.938594  443035 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-b65b9" targetNode="tb-edge-vm-4-2"
+I1010 02:24:34.077838  443035 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-sc5sh"
+I1010 02:24:35.095953  443035 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-sc5sh"
+I1010 02:24:35.096003  443035 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-2"
+I1010 02:24:35.148878  443035 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:24:35.148931  443035 main.go:70] "Current latency" latency=206.99191627841773
+I1010 02:24:36.002182  443035 main.go:77] "Stop the migration"
+I1010 02:24:46.002913  443035 main.go:89] "255.49 199.79 2"
+I1010 02:24:51.064816  443502 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:24:52.076888  443502 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:24:53.089553  443502 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:24:54.099045  443502 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:24:55.109409  443502 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:24:56.119858  443502 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:24:57.147687  443502 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:24:58.179944  443502 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:24:59.209945  443502 main.go:56] "Pods are ready"
+I1010 02:25:09.210393  443502 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:25:09.210533  443502 main.go:70] "Current latency" latency=199.77219781509996
+I1010 02:25:10.238675  443502 main.go:77] "Stop the migration"
+I1010 02:25:20.239433  443502 main.go:89] "199.77 216.76 0"
+I1010 02:25:25.979263  443835 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:25:26.988674  443835 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:25:27.998638  443835 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:25:29.009072  443835 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:25:30.018032  443835 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:25:31.032333  443835 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:25:32.047085  443835 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:25:33.067209  443835 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:25:34.086986  443835 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:25:35.107027  443835 main.go:59] "Waiting for pods to be ready" retries=9
+I1010 02:25:36.131515  443835 main.go:59] "Waiting for pods to be ready" retries=10
+I1010 02:25:37.262160  443835 main.go:59] "Waiting for pods to be ready" retries=11
+I1010 02:25:38.293730  443835 main.go:56] "Pods are ready"
+I1010 02:25:48.294148  443835 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:25:48.294246  443835 main.go:70] "Current latency" latency=243.42929613471847
+I1010 02:25:49.545762  443835 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-2ld74" targetNode="tb-cloud-vm-8-2"
+I1010 02:25:53.068900  443835 migrator.go:205] "old Pod is removed yet, waiting..." podName="db-6c4d958f76-djplb"
+I1010 02:25:54.080738  443835 migrator.go:207] "new Pod has been successfully initialized" podName="db-6c4d958f76-djplb"
+I1010 02:25:54.080811  443835 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-cloud-vm-8-2"
+I1010 02:25:54.128909  443835 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:25:54.128979  443835 main.go:70] "Current latency" latency=203.59143861695347
+I1010 02:25:55.013689  443835 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-dj85d" targetNode="tb-cloud-vm-8-2"
+I1010 02:25:59.254102  443835 migrator.go:205] "old Pod is removed yet, waiting..." podName="db-6c4d958f76-4dph7"
+I1010 02:26:00.267183  443835 migrator.go:207] "new Pod has been successfully initialized" podName="db-6c4d958f76-4dph7"
+I1010 02:26:00.267225  443835 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-cloud-vm-8-2"
+I1010 02:26:00.338938  443835 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:26:00.338983  443835 main.go:70] "Current latency" latency=184.51295828229215
+I1010 02:26:01.230518  443835 main.go:77] "Stop the migration"
+I1010 02:26:11.231285  443835 main.go:89] "243.43 232.13 2"
+I1010 02:26:16.640028  444108 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:26:17.651975  444108 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:26:18.663891  444108 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:26:19.674952  444108 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:26:20.684928  444108 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:26:21.816223  444108 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:26:22.876808  444108 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:26:23.890700  444108 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:26:24.924102  444108 main.go:56] "Pods are ready"
+I1010 02:26:34.924674  444108 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:26:34.924916  444108 main.go:70] "Current latency" latency=215.83110965321993
+I1010 02:26:35.778670  444108 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-lk2zt" targetNode="tb-edge-vm-4-2"
+I1010 02:26:41.923799  444108 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-6nfsj"
+I1010 02:26:42.939364  444108 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-6nfsj"
+I1010 02:26:42.939412  444108 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-2"
+I1010 02:26:43.137942  444108 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:26:43.138006  444108 main.go:70] "Current latency" latency=266.75493276403887
+I1010 02:26:44.082592  444108 main.go:77] "Stop the migration"
+I1010 02:26:54.082744  444108 main.go:89] "215.83 183.98 1"
+I1010 02:26:59.540777  444441 main.go:59] "Waiting for pods to be ready" retries=0
+I1010 02:27:00.748390  444441 main.go:59] "Waiting for pods to be ready" retries=1
+I1010 02:27:01.781883  444441 main.go:59] "Waiting for pods to be ready" retries=2
+I1010 02:27:02.791150  444441 main.go:59] "Waiting for pods to be ready" retries=3
+I1010 02:27:03.803024  444441 main.go:59] "Waiting for pods to be ready" retries=4
+I1010 02:27:04.815956  444441 main.go:59] "Waiting for pods to be ready" retries=5
+I1010 02:27:05.825578  444441 main.go:59] "Waiting for pods to be ready" retries=6
+I1010 02:27:06.854128  444441 main.go:59] "Waiting for pods to be ready" retries=7
+I1010 02:27:07.865866  444441 main.go:59] "Waiting for pods to be ready" retries=8
+I1010 02:27:08.889413  444441 main.go:59] "Waiting for pods to be ready" retries=9
+I1010 02:27:09.914074  444441 main.go:56] "Pods are ready"
+I1010 02:27:19.914625  444441 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:27:19.914721  444441 main.go:70] "Current latency" latency=230.15175551281715
+I1010 02:27:20.852852  444441 migrator.go:126] "开始迁移Pod" podName="db-6c4d958f76-f7k42" targetNode="tb-cloud-vm-8-1"
+I1010 02:27:24.978335  444441 migrator.go:205] "old Pod is removed yet, waiting..." podName="db-6c4d958f76-slg79"
+I1010 02:27:25.992079  444441 migrator.go:207] "new Pod has been successfully initialized" podName="db-6c4d958f76-slg79"
+I1010 02:27:25.992126  444441 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-cloud-vm-8-1"
+I1010 02:27:26.046986  444441 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:27:26.047033  444441 main.go:70] "Current latency" latency=206.1627538204404
+I1010 02:27:26.925627  444441 migrator.go:126] "开始迁移Pod" podName="aggregator-84547896d9-ws97j" targetNode="tb-edge-vm-4-2"
+I1010 02:27:32.072301  444441 migrator.go:205] "old Pod is removed yet, waiting..." podName="aggregator-84547896d9-5l5q6"
+I1010 02:27:33.085070  444441 migrator.go:207] "new Pod has been successfully initialized" podName="aggregator-84547896d9-5l5q6"
+I1010 02:27:33.085108  444441 migrator.go:215] "开始恢复节点为可调度" targetNode="tb-edge-vm-4-2"
+I1010 02:27:33.150391  444441 main.go:69] "----------Rescheduling process starts----------"
+I1010 02:27:33.150432  444441 main.go:70] "Current latency" latency=213.52899988614826
+I1010 02:27:34.262950  444441 main.go:77] "Stop the migration"
+I1010 02:27:44.263224  444441 main.go:89] "230.15 200.73 2"
