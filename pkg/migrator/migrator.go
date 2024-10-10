@@ -3,7 +3,6 @@ package migrator
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -123,8 +122,8 @@ func (m *Migrator) evictPod(ctx context.Context, namespace string, podName strin
 }
 
 func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName string, appLabel string, targetNode string) error {
-	deploymentName := podName[:strings.LastIndex(podName[:strings.LastIndex(podName, "-")], "-")]
 	logger := klog.FromContext(ctx)
+	logger.V(1).Info("开始迁移Pod", "podName", podName, "targetNode", targetNode)
 	// Get all pods of the same deployment
 	pods, err := m.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: appLabel,
@@ -133,26 +132,20 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 		return fmt.Errorf("failed to get Pod list: %v", err)
 	}
 	podMap := make(map[string]corev1.Pod)
+
 	// Check if the target pod is in the list
 	for _, pod := range pods.Items {
 		podMap[pod.Name] = pod
-
 	}
-
 	if _, ok := podMap[podName]; !ok {
 		return fmt.Errorf("target Pod does not exist: %s", podName)
 	}
-
+	logger.V(2).Info("开始设置节点为不可调度", "targetNode", targetNode)
 	// Get all nodes
 	nodes, err := m.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	node_cnt := len(nodes.Items)
 	if err != nil {
 		return fmt.Errorf("failed to get node list: %v", err)
 	}
-	// Step 2: 设置节点不可调度
-	currentNode := podMap[podName].Spec.NodeName
-	logger.V(0).Info("Migration...", "podName", podName, "currentNode", currentNode, "targetNode", targetNode)
-	logger.V(2).Info("开始设置节点为不可调度", "targetNode", targetNode)
 	// Iterate through all nodes, cordon all except the target node
 	for _, node := range nodes.Items {
 		if node.Name != targetNode {
@@ -161,129 +154,81 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 			if err != nil {
 				logger.Error(err, "failed to set node as unschedulable", "node", node.Name)
 			} else {
-				logger.V(3).Info("successfully set node as unschedulable", "node", node.Name)
+				logger.V(2).Info("successfully set node as unschedulable", "node", node.Name)
 			}
 		}
 	}
-	logger.V(2).Info("检查cordon nodes状态")
+	logger.V(2).Info("开始驱逐Pod", "podName", podName)
+	// Evict the current pod
+	err = m.clientset.CoreV1().Pods(namespace).Evict(ctx, &v1beta1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to evict Pod: %v", err)
+	}
+	// Get the status of the new pod and wait for it to initialize successfully
 	for {
-		ok, err := m.checkCordonNode(ctx, node_cnt-1)
+		pods, err := m.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: appLabel,
+		})
 		if err != nil {
-			logger.Error(err, "检查uncordon的节点数量失败")
-			return err
+			return fmt.Errorf("failed to get Pod list: %v", err)
 		}
-		if ok {
-			break
+
+		// The new node hasn't appeared in the previous map
+		var newPod *corev1.Pod
+		for _, pod := range pods.Items {
+			if _, ok := podMap[pod.Name]; !ok && pod.Status.Phase == corev1.PodRunning {
+				newPod = &pod
+				break
+			}
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	logger.V(2).Info("uncordon nodes状态达到预期")
-	// State Check:
-	// 检查uncordon的节点数量是否符合预期
 
-	logger.V(3).Info("修改replicaset", "podName", podName)
-	deployment, err := m.clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
-	logger.V(3).Info("deployment version", "version", deployment.Spec.Template.Labels["version"])
-	if err != nil {
-		logger.Error(err, "获取 Deployment 失败")
-		return err
-	}
+		if newPod == nil {
+			logger.V(2).Info("new Pod is not ready yet, waiting...")
+		} else {
+			// check if newPod is in the target Node
+			if newPod.Spec.NodeName != targetNode {
+				logger.V(0).Info("new pods is incorrectly scheduled", "podName", newPod.Name, "nodeName", newPod.Spec.NodeName)
+			}
+			// 获取Pod的deployment，并且得到deployment，确定其replicas
+			deployment, err := m.clientset.AppsV1().Deployments(namespace).Get(ctx, newPod.Labels["app"], metav1.GetOptions{})
 
-	// Step 3: 增加 replicas 数量
-	originalReplicas := *deployment.Spec.Replicas
-	logger.V(3).Info("原始 replicas 数量", "originalReplicas", originalReplicas)
-	newReplicas := originalReplicas + 1
-	deployment.Spec.Replicas = &newReplicas
-	logger.V(3).Info("修改replica", "newReplicas", newReplicas)
-	_, err = m.clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	if err != nil {
-		logger.Error(err, "增加replica失败")
-		return err
-	}
-
-	// Step 4: 更改targetPod的优先级
-	logger.V(2).Info("更改Pod优先级:更新pod")
-	pod, err := m.clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		logger.Error(err, "更改Pod优先级:获取pod失败")
-		return err
-	}
-	if pod.Annotations == nil {
-		pod.Annotations = make(map[string]string)
-	}
-	pod.Annotations["controller.kubernetes.io/pod-deletion-cost"] = "0"
-	_, err = m.clientset.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
-	if err != nil {
-		logger.Error(err, "更改Pod优先级:更新pod失败")
-		return err
-	}
-	logger.V(2).Info("更改Pod优先级:更新pod成功")
-	err = m.waitForPodAnnotationReady(ctx, namespace, podName, "controller.kubernetes.io/pod-deletion-cost", "0")
-	if err != nil {
-		logger.Error(err, "等待annotation更新失败")
-		return err
+			if err != nil {
+				logger.Error(err, "获取deployment失败")
+				return err
+			}
+			if deployment.Status.ReadyReplicas != 2 {
+				logger.V(1).Info("old Pod is removed yet, waiting...", "podName", newPod.Name)
+			} else {
+				logger.V(1).Info("new Pod has been successfully initialized", "podName", newPod.Name)
+				break
+			}
+		}
+		time.Sleep(1 * time.Second)
 	}
 
-	// Step 5: 等待新 Pod 运行
-	err = m.waitForPodReady(ctx, namespace, deploymentName, podMap)
-	if err != nil {
-		logger.Error(err, "等待新的 Pod 运行失败")
-		return err
-	}
-
-	// Step 6: 恢复节点为可调度
-	logger.V(2).Info("开始恢复节点为可调度")
+	// Restore all nodes to schedulable state
+	logger.V(1).Info("开始恢复节点为可调度", "targetNode", targetNode)
 	nodes, err = m.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get node list: %v", err)
 	}
 	for _, node := range nodes.Items {
 		if node.Spec.Unschedulable {
-			logger.V(3).Info("restoring node to schedulable state", "node", node.Name)
+			logger.V(2).Info("restoring node to schedulable state", "node", node.Name)
 			node.Spec.Unschedulable = false
 			_, err := m.clientset.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to restore node to schedulable state: %v", err)
 			} else {
-				logger.V(3).Info("successfully restored node to schedulable state", "node", node.Name)
+				logger.V(2).Info("successfully restored node to schedulable state", "node", node.Name)
 			}
 		}
 	}
-	logger.V(2).Info("检查uncordon nodes状态")
-	for {
-		ok, err := m.checkCordonNode(ctx, 0)
-		if err != nil {
-			logger.Error(err, "检查uncordon的节点数量失败")
-			return err
-		}
-		if ok {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	logger.V(2).Info("恢复节点为可调度成功")
-
-	// Step 5: 将replica set改回去
-	deployment, err = m.clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
-	if err != nil {
-		logger.Error(err, "获取deployment失败")
-		return err
-	}
-
-	deployment.Spec.Replicas = &originalReplicas
-	_, err = m.clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	if err != nil {
-		logger.Error(err, "减少replica失败")
-		return err
-	}
-
-	// 等待replica减少成功
-	err = m.waitForReplicaDecrease(ctx, namespace, deploymentName, originalReplicas, podName)
-	if err != nil {
-		logger.Error(err, "等待replica减少失败")
-		return err
-	}
-	// Restore all nodes to schedulable state
 	return nil
 }
 

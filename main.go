@@ -15,7 +15,6 @@ import (
 	m "github.com/paprikaw/rscheduler/pkg/migrator"
 	d "github.com/paprikaw/rscheduler/pkg/model"
 	q "github.com/paprikaw/rscheduler/pkg/queryclient"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -47,24 +46,13 @@ func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, 
 	logger := klog.FromContext(ctx)
 	retries := 0
 	for retries < maxPodWaitingRetries {
-		podList, err := queryClient.GetPods(ctx, config.Namespace, config.AppLabel)
+		ready, err := queryClient.CheckDeploymentsPodsReady(ctx, config.Namespace, config.AppLabel)
 		if err != nil {
 			logger.Error(err, "无法获取 Pods 列表")
 			return err
 		}
-		podsReady := true
-		for _, pod := range podList.Items {
-			// 检查 Pod 是否处于 Running 且 Ready 状态
-			if pod.Status.Phase == corev1.PodRunning {
-				for _, condition := range pod.Status.Conditions {
-					if condition.Type == corev1.PodReady && condition.Status != corev1.ConditionTrue {
-						podsReady = false
-						break
-					}
-				}
-			}
-		}
-		if podsReady {
+		if ready {
+			logger.V(1).Info("Pods are ready")
 			break
 		}
 		logger.V(1).Info("Waiting for pods to be ready", "retries", retries)
@@ -90,9 +78,11 @@ func startOneReschedulingEpisodeBestEffort(ctx context.Context, config *Config, 
 			logger.Error(err, "Failed to migrate Pod")
 			continue
 		}
+		step++
 	}
-	time.Sleep(5 * time.Second)
-	logger.V(0).Info(fmt.Sprintf("%.2f", estimatedRT.Get()))
+	estimatedRT.Set(0)
+	time.Sleep(10 * time.Second)
+	logger.V(0).Info(fmt.Sprintf("%.2f %d", estimatedRT.Get(), step))
 	return nil
 }
 
