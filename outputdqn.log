@@ -275,3 +275,41 @@ I1010 02:27:33.150391  444441 main.go:69] "----------Rescheduling process starts
 I1010 02:27:33.150432  444441 main.go:70] "Current latency" latency=213.52899988614826
 I1010 02:27:34.262950  444441 main.go:77] "Stop the migration"
 I1010 02:27:44.263224  444441 main.go:89] "230.15 200.73 2"
+I1010 04:01:58.917944  481786 main.go:60] "Waiting for pods to be ready" retries=0
+I1010 04:01:59.927319  481786 main.go:60] "Waiting for pods to be ready" retries=1
+I1010 04:02:00.939036  481786 main.go:60] "Waiting for pods to be ready" retries=2
+signal: interrupt
+I1010 04:02:57.910406  482325 migrator.go:146] "Migration..." podName="aggregator-84547896d9-gdgww" currentNode="tb-edge-vm-2-2" targetNode="tb-edge-vm-4-2"
+E1010 04:03:05.712574  482325 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:06.721392  482325 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:07.728546  482325 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:08.735034  482325 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:09.742176  482325 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+I1010 04:03:21.703270  482325 main.go:90] "201.90 212.75 1"
+I1010 04:03:47.362018  482553 migrator.go:146] "Migration..." podName="aggregator-84547896d9-q2wsh" currentNode="tb-cloud-vm-8-2" targetNode="tb-edge-vm-4-2"
+E1010 04:03:54.809695  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:55.815827  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:56.823026  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:03:57.831006  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+I1010 04:04:00.212041  482553 migrator.go:146] "Migration..." podName="aggregator-84547896d9-rr6np" currentNode="tb-cloud-vm-8-1" targetNode="tb-edge-vm-4-2"
+E1010 04:04:06.980683  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:04:07.988064  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:04:08.996711  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+E1010 04:04:10.004520  482553 migrator.go:276] "新的replicaSet数量不等于预期" err="新的replicaSet数量不等于预期, 预期数量: 2, 实际数量: 3"
+I1010 04:04:22.256713  482553 main.go:90] "268.05 197.26 2"
+signal: interrupt
+I1010 04:06:02.888609  484040 main.go:90] "200.82 202.56 2"
+I1010 04:06:55.232615  484384 main.go:90] "260.51 254.45 1"
+I1010 04:08:09.576827  484709 main.go:90] "260.05 173.44 3"
+I1010 04:09:01.694766  485036 main.go:90] "192.34 191.48 1"
+I1010 04:10:00.771646  486017 main.go:90] "264.64 204.55 2"
+# github.com/paprikaw/rscheduler/pkg/migrator
+pkg/migrator/migrator.go:38:75: undefined: config
+pkg/migrator/migrator.go:84:65: undefined: config
+pkg/migrator/migrator.go:118:60: undefined: config
+pkg/migrator/migrator.go:210:58: not enough arguments in call to m.waitForPodReady
+	have (context.Context, string, string, map[string]"k8s.io/api/core/v1".Pod)
+	want (context.Context, unknown type, string, string, map[string]"k8s.io/api/core/v1".Pod)
+pkg/migrator/migrator.go:235:107: not enough arguments in call to m.waitForPodAnnotationReady
+	have (context.Context, string, string, string, string)
+	want (context.Context, unknown type, string, string, string, string)

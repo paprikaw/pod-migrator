@@ -8,18 +8,20 @@ import (
 )
 
 type Config struct {
-	URL            string
-	ServiceName    string
-	Lookback       string
-	Limit          int
-	PollingPeriod  time.Duration
-	Alpha          float64
-	KubeConfigPath string
-	PrometheusAddr string
-	AppLabel       string
-	GatewayService string
-	Namespace      string
-	QosThreshold   float64
+	URL                  string
+	ServiceName          string
+	Lookback             string
+	Limit                int
+	PollingPeriod        time.Duration
+	Alpha                float64
+	KubeConfigPath       string
+	PrometheusAddr       string
+	AppLabel             string
+	GatewayService       string
+	Namespace            string
+	QosThreshold         float64
+	MaxPodWaitingRetries int
+	MaxStep              int
 }
 
 func ConfigFromEnv() (*Config, error) {
@@ -65,5 +67,14 @@ func ConfigFromEnv() (*Config, error) {
 	}
 	config.QosThreshold = qosThreshold
 
+	config.MaxPodWaitingRetries, err = strconv.Atoi(os.Getenv("MAX_POD_WAITING_RETRIES"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MAX_POD_WAITING_RETRIES value: %w", err)
+	}
+
+	config.MaxStep, err = strconv.Atoi(os.Getenv("MAX_STEP"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MAX_STEP value: %w", err)
+	}
 	return config, nil
 }

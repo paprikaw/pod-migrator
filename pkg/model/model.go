@@ -47,9 +47,21 @@ type Response struct {
 type TraceResponse struct {
 	Data []struct {
 		TraceID string `json:"traceID"`
-		Spans   []struct {
-			StartTime int64 `json:"startTime"`
-			Duration  int64 `json:"duration"`
-		} `json:"spans"`
+		Spans   []Span `json:"spans"` // 使用单独的 Span 结构体
 	} `json:"data"`
+}
+
+// 定义 Span 结构体
+type Span struct {
+	OperationName string `json:"operationName"`
+	StartTime     int64  `json:"startTime"`
+	Duration      int64  `json:"duration"`
+	Tags          []Tag  `json:"tags"` // 添加 Tags 字段以解析 span 的附加信息
+}
+
+// 定义 Tag 结构体
+type Tag struct {
+	Key   string      `json:"key"`
+	Type  string      `json:"type"`
+	Value interface{} `json:"value"` // Change to interface{} to handle multiple types
 }

@@ -35,10 +35,9 @@ func NewMigrator(kubeconfig string) (*Migrator, error) {
 		clientset: clientset,
 	}, nil
 }
-func (m *Migrator) waitForPodAnnotationReady(ctx context.Context, namespace string, podName string, annotationKey string, expectedValue string) error {
+func (m *Migrator) waitForPodAnnotationReady(ctx context.Context, pollingPeriod time.Duration, namespace string, podName string, annotationKey string, expectedValue string) error {
 	logger := klog.FromContext(ctx)
 	logger.V(2).Info("等待 Pod 的 annotation 更新", "podName", podName, "annotationKey", annotationKey, "expectedValue", expectedValue)
-
 	// 定义轮询机制，等待 Pod annotation 更新
 	for {
 		pod, err := m.clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
@@ -53,7 +52,7 @@ func (m *Migrator) waitForPodAnnotationReady(ctx context.Context, namespace stri
 			return nil
 		}
 
-		time.Sleep(50 * time.Millisecond) // 等待一段时间后重试
+		time.Sleep(pollingPeriod) // 等待一段时间后重试
 	}
 }
 
@@ -80,7 +79,42 @@ func (m *Migrator) evictPod(ctx context.Context, namespace string, podName strin
 	return nil
 }
 
-func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName string, appLabel string, targetNode string, replicaCnt int32) error {
+// waitForPodReady 等待新的 Pod 处于 Running 状态
+func (m *Migrator) waitForPodReady(ctx context.Context, pollingPeriod time.Duration, namespace string, deployment string, oldPods map[string]corev1.Pod) error {
+	logger := klog.FromContext(ctx)
+	logger.V(1).Info("等待新的 Pod 处于 Running 状态", "appLabel", deployment)
+
+	// 直接for循环请求，遍历podList查看是否处于running状态
+	for {
+		podList, err := m.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: fmt.Sprintf("app=%s", deployment),
+		})
+		if err != nil {
+			logger.Error(err, "无法获取 Pods 列表")
+			return err
+		}
+
+		for _, pod := range podList.Items {
+			// 检查 Pod 是否处于 Running 且 Ready 状态
+			if _, ok := oldPods[pod.Name]; !ok && pod.Status.Phase == corev1.PodRunning {
+				allReady := true
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status != corev1.ConditionTrue {
+						allReady = false
+						break
+					}
+				}
+				if allReady {
+					logger.V(1).Info("新的 Pod 已经处于 Running 且 Ready 状态", "podName", pod.Name)
+					return nil
+				}
+			}
+		}
+		time.Sleep(pollingPeriod)
+	}
+}
+
+func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, namespace string, podName string, appLabel string, targetNode string, replicaCnt int32) error {
 	deploymentName := podName[:strings.LastIndex(podName[:strings.LastIndex(podName, "-")], "-")]
 	logger := klog.FromContext(ctx)
 	// Get all pods of the same deployment
@@ -108,7 +142,7 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 			return fmt.Errorf("failed to get node list: %v", err)
 		}
 		currentNode := podMap[podName].Spec.NodeName
-		logger.V(0).Info("Migration...", "podName", podName, "currentNode", currentNode, "targetNode", targetNode)
+		logger.V(1).Info("Migration...", "podName", podName, "currentNode", currentNode, "targetNode", targetNode)
 		logger.V(2).Info("开始设置节点为不可调度", "targetNode", targetNode)
 		// Iterate through all nodes, cordon all except the target node
 		for _, node := range nodes.Items {
@@ -139,7 +173,7 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 		if ok {
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(pollingPeriod)
 	}
 	logger.V(2).Info("cordon nodes状态达到预期")
 
@@ -172,6 +206,11 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 		return err
 	}
 	// Wait for new replica to be at running state
+	err = m.waitForPodReady(ctx, pollingPeriod, namespace, deploymentName, podMap)
+	if err != nil {
+		logger.Error(err, "等待新的pod处于running状态失败")
+		return err
+	}
 	// Step 4: 更改targetPod的优先级
 	logger.V(2).Info("更改Pod优先级:更新pod")
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -192,7 +231,7 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 		return err
 	}
 	logger.V(2).Info("更改Pod优先级:更新pod成功")
-	err = m.waitForPodAnnotationReady(ctx, namespace, podName, "controller.kubernetes.io/pod-deletion-cost", "0")
+	err = m.waitForPodAnnotationReady(ctx, pollingPeriod, namespace, podName, "controller.kubernetes.io/pod-deletion-cost", "0")
 	if err != nil {
 		logger.Error(err, "等待annotation更新失败")
 		return err
@@ -223,7 +262,7 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 	// 3: targetPod不在replicaSet中
 	// 4: 出现一个新的pod
 	for {
-		time.Sleep(1 * time.Second)
+		time.Sleep(pollingPeriod)
 		podList, err := m.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: fmt.Sprintf("app=%s", deploymentName),
 		})
@@ -232,14 +271,14 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 			return err
 		}
 		if len(podList.Items) != int(replicaCnt) {
-			err = fmt.Errorf("新的replicaSet数量不等于预期, 预期数量: %d, 实际数量: %d", replicaCnt, len(podList.Items))
-			logger.Error(err, "新的replicaSet数量不等于预期")
+			logger.V(2).Info("新的replicaSet数量不等于预期", "expected", replicaCnt, "actual", len(podList.Items))
 			continue
 		}
-		if _, ok := podMap[podName]; ok {
-			err = fmt.Errorf("旧的pod %s 仍然存在", podName)
-			logger.Error(err, "旧的pod仍然存在")
-			continue
+		for _, pod := range podList.Items {
+			if pod.Name == podName {
+				logger.V(2).Info("旧的pod仍然存在", "podName", pod.Name)
+				continue
+			}
 		}
 		isNewPodRunning := false
 		for _, pod := range podList.Items {
@@ -303,7 +342,7 @@ func (m *Migrator) MigratePod(ctx context.Context, namespace string, podName str
 		if ok {
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(pollingPeriod)
 	}
 	logger.V(2).Info("恢复节点为可调度成功")
 	// Restore all nodes to schedulable state

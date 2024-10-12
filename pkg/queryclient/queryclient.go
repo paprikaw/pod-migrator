@@ -190,7 +190,7 @@ func (c *QueryClient) GetNodeTotalRequests(ctx context.Context, node *v1core.Nod
 
 func (c *QueryClient) CheckDeploymentsPodsReady(ctx context.Context, namespace string, labelSelector string) (bool, error) {
 	logger := klog.FromContext(ctx)
-
+	logger.V(1).Info("检查 Deployment 的 Pods 是否 Ready")
 	// 获取所有匹配 label 的 Deployments
 	deploymentList, err := c.clientset.AppsV1().Deployments(namespace).List(ctx, typev1.ListOptions{
 		LabelSelector: labelSelector,
@@ -215,6 +215,10 @@ func (c *QueryClient) CheckDeploymentsPodsReady(ctx context.Context, namespace s
 		for _, pod := range podList.Items {
 			if pod.Status.Phase != v1core.PodRunning {
 				logger.V(2).Info("Pod is not in Running phase", "pod", pod.Name)
+				return false, nil
+			}
+			if pod.Status.Phase == v1core.PodFailed {
+				logger.V(2).Info("Pod is in Failed phase", "pod", pod.Name)
 				return false, nil
 			}
 			for _, condition := range pod.Status.Conditions {

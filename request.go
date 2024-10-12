@@ -16,7 +16,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func GetRequest(ctx context.Context, config *Config, queryClient *q.QueryClient, migrator *m.Migrator, latency float64) (*d.Request, error) {
+func GetRequest(ctx context.Context, config *Config, queryClient *q.QueryClient, migrator *m.Migrator) (*d.Request, error) {
 	clusterState, err := GetClusterState(ctx, config, queryClient)
 	if err != nil {
 		return nil, err
@@ -32,8 +32,8 @@ func GetRequest(ctx context.Context, config *Config, queryClient *q.QueryClient,
 	return &request, nil
 }
 
-func GetMigrationResult(ctx context.Context, config *Config, queryClient *q.QueryClient, httpClient *http.Client, migrator *m.Migrator, latency float64) (*d.Response, error) {
-	request, err := GetRequest(ctx, config, queryClient, migrator, latency)
+func GetMigrationResult(ctx context.Context, config *Config, queryClient *q.QueryClient, httpClient *http.Client, migrator *m.Migrator) (*d.Response, error) {
+	request, err := GetRequest(ctx, config, queryClient, migrator)
 	if err != nil {
 		return nil, err
 	}
