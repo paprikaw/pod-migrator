@@ -21,9 +21,8 @@ import (
 	"k8s.io/klog/v2"
 )
 
-var startWaitingTime = 30 * time.Second
-var endWaitingTime = 15 * time.Second
-var latestTraceTimestamp int64 = 0
+var startWaitingTime = 60 * time.Second
+var endWaitingTime = 20 * time.Second
 
 type FailedToGetValidTraceError struct {
 	err error
@@ -41,42 +40,56 @@ type LatencyData struct {
 	db_latency         float64
 }
 
-type EstimatedRT struct {
-	mu    sync.RWMutex
-	value LatencyData
+// Estimated Moving Average
+type EstimatedMA struct {
+	mu      sync.RWMutex
+	latency float64
 }
 
-func (e *EstimatedRT) Get() LatencyData {
+func (e *EstimatedMA) Get() float64 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.value
+	return e.latency
 }
 
-func (e *EstimatedRT) Set(val LatencyData) {
+func (e *EstimatedMA) Set(val float64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.value = val
+	e.latency = val
 }
 
-var estimatedRT = &EstimatedRT{value: LatencyData{}}
+var estimatedRT = &EstimatedMA{}
 
-func getValidTrace(ctx context.Context, config *Config) (LatencyData, error) {
+func waitForValidTraces(ctx context.Context, config *Config, maximumTraceCount int, minimumValidTraceCount int) (LatencyData, error) {
 	logger := klog.FromContext(ctx)
 	retries := 0
 	var averageLatency LatencyData
 	for retries < config.MaxPodWaitingRetries {
-		result, err := getLatestTrace(ctx, config, 200, 5, 10)
+		retries++
+		result, _, err := getValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount, true, time.Time{})
 		if err != nil {
 			logger.Error(err, "Failed to get immediate trace")
 			return LatencyData{}, err
 		}
-
-		if result.client_latency != 0 {
-			averageLatency = result
-			break
+		if len(result) < minimumValidTraceCount {
+			logger.V(2).Info("Not enough valid trace data", "retries", retries)
+			time.Sleep(config.PollingPeriod)
+			continue
 		}
-		time.Sleep(config.PollingPeriod)
-		retries++
+		latencySum := LatencyData{}
+		for _, latency := range result {
+			latencySum.client_latency += latency.client_latency
+			latencySum.aggregator_latency += latency.aggregator_latency
+			latencySum.detection_latency += latency.detection_latency
+			latencySum.ml_latency += latency.ml_latency
+			latencySum.db_latency += latency.db_latency
+		}
+		averageLatency.client_latency = latencySum.client_latency / float64(len(result))
+		averageLatency.aggregator_latency = latencySum.aggregator_latency / float64(len(result))
+		averageLatency.detection_latency = latencySum.detection_latency / float64(len(result))
+		averageLatency.ml_latency = latencySum.ml_latency / float64(len(result))
+		averageLatency.db_latency = latencySum.db_latency / float64(len(result))
+		return averageLatency, nil
 	}
 	if averageLatency.client_latency == 0 {
 		err := FailedToGetValidTraceError{err: errors.New("not enough valid trace data")}
@@ -86,6 +99,20 @@ func getValidTrace(ctx context.Context, config *Config) (LatencyData, error) {
 	return averageLatency, nil
 }
 
+//	func getLatestValidTracesAvgLatency(ctx context.Context, config *Config, maximumTraceCount int, minimumValidTraceCount int, timeSpan int) (LatencyData, error) {
+//		latencies, err := getValidTraces(ctx, config, maximumTraceCount, timeSpan)
+//		if err != nil {
+//			return LatencyData{}, err
+//		}
+//		if len(latencies) < minimumValidTraceCount {
+//			return LatencyData{}, errors.New("not enough valid trace data")
+//		}
+//		latencySum := LatencyData{}
+//		for _, latency := range latencies {
+//			latencySum.client_latency += latency.client_latency
+//		}
+//		return latencies[0], nil
+//	}
 func waitForPodReady(ctx context.Context, config *Config, queryClient *q.QueryClient) error {
 	logger := klog.FromContext(ctx)
 	isPodReady := false
@@ -115,11 +142,13 @@ func waitForPodReady(ctx context.Context, config *Config, queryClient *q.QueryCl
 func recordBestEffortData(ctx context.Context, config *Config, queryClient *q.QueryClient, dataExporter *de.DataExporter) (LatencyData, error) {
 	logger := klog.FromContext(ctx)
 	err := waitForPodReady(ctx, config, queryClient)
+	maximumTraceCount := 100
+	minimumValidTraceCount := 5
 	if err != nil {
 		return LatencyData{}, err
 	}
 	time.Sleep(startWaitingTime)
-	averageLatency, err := getValidTrace(ctx, config)
+	averageLatency, err := waitForValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount)
 	if err != nil {
 		return LatencyData{}, err
 	}
@@ -127,14 +156,17 @@ func recordBestEffortData(ctx context.Context, config *Config, queryClient *q.Qu
 	dataExporter.WriteBE(averageLatency.client_latency, averageLatency.aggregator_latency, averageLatency.detection_latency, averageLatency.ml_latency, averageLatency.db_latency)
 	return averageLatency, nil
 }
+
 func startOneReschedulingEpisode(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, replicaCnt int, dataExporter *de.DataExporter) error {
+	maximumTraceCount := 100
+	minimumValidTraceCount := 5
 	logger := klog.FromContext(ctx)
 	err := waitForPodReady(ctx, config, queryClient)
 	if err != nil {
 		return err
 	}
 	time.Sleep(startWaitingTime)
-	startAverageLatency, err := getValidTrace(ctx, config)
+	startAverageLatency, err := waitForValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount)
 	if err != nil {
 		return err
 	}
@@ -158,7 +190,7 @@ func startOneReschedulingEpisode(ctx context.Context, config *Config, migrator *
 		step++
 	}
 	time.Sleep(endWaitingTime)
-	endAverageLatency, err := getValidTrace(ctx, config)
+	endAverageLatency, err := waitForValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount)
 	if err != nil {
 		return err
 	}
@@ -177,9 +209,9 @@ func startOneReschedulingEpisode(ctx context.Context, config *Config, migrator *
 	)
 	return nil
 }
-
 func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, replicaCnt int) {
 	// Import necessary packages
+	// TODO: 完成monitor的数据写入逻辑，以供后面case study的时候记录
 	interval := 10 * time.Second // Set monitoring interval to 5 minutes
 	logger := klog.FromContext(ctx)
 	ticker := time.NewTicker(interval)
@@ -190,8 +222,8 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 		case <-ticker.C:
 			latency := estimatedRT.Get()
 			logger.V(1).Info("----------Monitoring process starts----------")
-			if latency.client_latency > config.QosThreshold {
-				logger.V(1).Info("Current latency", "latency", latency.client_latency)
+			if latency > config.QosThreshold {
+				logger.V(1).Info("Current latency", "latency", latency)
 				response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
 				if err != nil {
 					logger.Error(err, "Failed to get migration result")
@@ -208,7 +240,7 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 					continue
 				}
 			} else {
-				logger.V(1).Info("Current latency is within the threshold", "latency", latency.client_latency)
+				logger.V(1).Info("Current latency is within the threshold", "latency", latency)
 			}
 		case <-ctx.Done():
 			return
@@ -216,18 +248,23 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 	}
 }
 
-func getLatestTrace(ctx context.Context, config *Config, maximumTraceCount int, minimumValidTraceCount int, timeSpan int) (LatencyData, error) {
-	curTime := time.Now()
+// get traces based on facts:
+// 1. the trace is not older than {spanTime} seconds
+// 2. the trace has full spans or only need client span {fullSpan}
+// 3. trace start time start from {after}
+// 4. how many traces to get from jaeger api {maximumTraceCount}
+// If there is newer traces, also return back the start time of latest traces
+func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, spanTime int, fullSpan bool, after time.Time) ([]LatencyData, time.Time, error) {
 	logger := klog.FromContext(ctx)
 	// 构建请求 URL
 	url := ""
 	url = fmt.Sprintf("%s?service=%s&limit=%d", config.URL, config.ServiceName, maximumTraceCount)
-
+	latestTraceStartTime := after.UnixMicro()
 	// 发送 HTTP 请求
 	resp, err := http.Get(url)
 	if err != nil {
 		logger.Error(err, "Error fetching trace")
-		return LatencyData{}, err
+		return []LatencyData{}, time.Time{}, err
 	}
 	defer resp.Body.Close()
 
@@ -235,39 +272,40 @@ func getLatestTrace(ctx context.Context, config *Config, maximumTraceCount int, 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error(err, "Error reading response body")
-		return LatencyData{}, err
+		return []LatencyData{}, time.Time{}, err
 	}
+
 	// 解析 JSON 响应
 	var traceResponse d.TraceResponse
 	err = json.Unmarshal(body, &traceResponse)
 	if err != nil {
 		log.Println("Error parsing JSON:", err)
-		return LatencyData{}, err
+		return []LatencyData{}, time.Time{}, err
 	}
 
 	// 检查是否有数据
 	if len(traceResponse.Data) == 0 || len(traceResponse.Data[0].Spans) == 0 {
-		log.Println("No trace data found")
-		return LatencyData{}, err
+		logger.V(2).Info("No trace data found")
+		return []LatencyData{}, time.Time{}, nil
 	}
-	var latencySum LatencyData
-	totalValidTraceCount := 0
+	var latencies []LatencyData
+	// 遍历所有 spans，提取延迟信息
 	for i := len(traceResponse.Data) - 1; i >= 0; i-- {
-		// 获取最新的 trace 数据
+		trace := traceResponse.Data[i]
 		latestTrace := traceResponse.Data[i]
 		traceStartTime := latestTrace.Spans[0].StartTime
-		traceStartTimeFormatted := time.Unix(0, traceStartTime*int64(time.Microsecond)).Format(time.RFC3339)
-		// 如果 trace 是旧的，则跳过
-		if traceStartTime < curTime.Add(-time.Duration(timeSpan)*time.Second).UnixMicro() {
-			logger.V(3).Info(fmt.Sprintf("Trace is not within %d seconds. Trace start time: %s", timeSpan, traceStartTimeFormatted))
+		if traceStartTime < after.UnixMicro()-int64(spanTime*1e6) {
 			continue
 		}
-		logger.V(3).Info(fmt.Sprintf("New trace found. Trace start time: %s", traceStartTimeFormatted))
-		// 初始化 Latencies 结构体
-		var latencies LatencyData
+		// 如果 trace 是旧的，则跳过
+		if traceStartTime < latestTraceStartTime {
+			continue
+		}
+		latestTraceStartTime = traceStartTime
+		latency := LatencyData{}
 		traceCount := 0
-		// 遍历所有 spans，提取延迟信息
-		for _, span := range latestTrace.Spans {
+		isClientPresent := false
+		for _, span := range trace.Spans {
 			// Extract span.kind from tags
 			spanKind := ""
 			isString := false
@@ -289,175 +327,61 @@ func getLatestTrace(ctx context.Context, config *Config, maximumTraceCount int, 
 			// 根据服务名和 span 类型来计算延迟
 			operation := span.OperationName
 			durationMs := float64(span.Duration) / 1000.0 // 将微秒转换为毫秒
-
 			switch {
 			// 对于 client 服务，计算 client 类型 span 的延迟
 			case strings.Contains(operation, "client.default.svc.cluster.local") && spanKind == "client":
-				latencies.client_latency = durationMs
+				latency.client_latency = durationMs
+				isClientPresent = true
 				traceCount++
 			// 对于其他服务，计算 server 类型 span 的延迟
 			case strings.Contains(operation, "aggregator.default.svc.cluster.local") && spanKind == "server":
-				latencies.aggregator_latency = durationMs
+				latency.aggregator_latency = durationMs
 				traceCount++
 			case strings.Contains(operation, "detection.default.svc.cluster.local") && spanKind == "server":
-				latencies.detection_latency = durationMs
+				latency.detection_latency = durationMs
 				traceCount++
 			case strings.Contains(operation, "machine-learning.default.svc.cluster.local") && spanKind == "server":
-				latencies.ml_latency = durationMs
+				latency.ml_latency = durationMs
 				traceCount++
 			case strings.Contains(operation, "db.default.svc.cluster.local") && spanKind == "server":
-				latencies.db_latency = durationMs
+				latency.db_latency = durationMs
 				traceCount++
 			}
 		}
-		if traceCount < 5 {
-			logger.V(3).Info("Not enough trace data", "traceCount", traceCount)
+		if traceCount == 0 {
 			continue
 		}
-		latencySum.client_latency += latencies.client_latency
-		latencySum.aggregator_latency += latencies.aggregator_latency
-		latencySum.detection_latency += latencies.detection_latency
-		latencySum.ml_latency += latencies.ml_latency
-		latencySum.db_latency += latencies.db_latency
-		totalValidTraceCount++
-		latencies = LatencyData{}
+		// If the trace is not full span and client is present, or the trace has full spans, add it to the latencies
+		if (!fullSpan && isClientPresent) || traceCount == 5 {
+			latencies = append(latencies, latency)
+		}
 	}
-	if totalValidTraceCount < minimumValidTraceCount {
-		logger.V(2).Info("Not enough valid trace data", "totalValidTraceCount", totalValidTraceCount)
-		return LatencyData{}, nil
-	}
-	latencySum.client_latency /= float64(totalValidTraceCount)
-	latencySum.aggregator_latency /= float64(totalValidTraceCount)
-	latencySum.detection_latency /= float64(totalValidTraceCount)
-	latencySum.ml_latency /= float64(totalValidTraceCount)
-	latencySum.db_latency /= float64(totalValidTraceCount)
-	return latencySum, nil
+	return latencies, time.UnixMicro(latestTraceStartTime), nil
 }
-func updateTrace(ctx context.Context, config *Config) {
+
+func updateEastimateMA(ctx context.Context, config *Config, now time.Time) time.Time {
 	logger := klog.FromContext(ctx)
-	// 构建请求 URL
-	url := ""
-	url = fmt.Sprintf("%s?service=%s&limit=%d&lookback=%s", config.URL, config.ServiceName, config.Limit, config.Lookback)
-
-	// 发送 HTTP 请求
-	resp, err := http.Get(url)
+	latencies, latestTraceStartTime, err := getValidTraces(ctx, config, 1, 5, false, now)
 	if err != nil {
-		logger.Error(err, "Error fetching trace")
-		return
+		logger.Error(err, "Failed to get valid traces")
+		return now
 	}
-	defer resp.Body.Close()
-
-	// 读取响应数据
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Error(err, "Error reading response body")
-		return
+	if len(latencies) == 0 {
+		return now
 	}
-	// 解析 JSON 响应
-	var traceResponse d.TraceResponse
-	err = json.Unmarshal(body, &traceResponse)
-	if err != nil {
-		log.Println("Error parsing JSON:", err)
-		return
-	}
-
-	// 检查是否有数据
-	if len(traceResponse.Data) == 0 || len(traceResponse.Data[0].Spans) == 0 {
-		log.Println("No trace data found")
-		return
-	}
-
-	for i := len(traceResponse.Data) - 1; i >= 0; i-- {
-		// 获取最新的 trace 数据
-		latestTrace := traceResponse.Data[i]
-		traceStartTime := latestTrace.Spans[0].StartTime
-		traceStartTimeFormatted := time.Unix(0, traceStartTime*int64(time.Microsecond)).Format(time.RFC3339)
-		// 如果 trace 是旧的，则跳过
-		if traceStartTime < time.Now().Add(-10*time.Second).UnixMicro() {
-			logger.V(2).Info(fmt.Sprintf("Trace is not within 10 seconds. Trace start time: %s", traceStartTimeFormatted))
-			continue
-		}
-		// trace是旧的
-		latestTraceTimestampFormatted := time.Unix(0, latestTraceTimestamp*int64(time.Microsecond)).Format(time.RFC3339)
-		if traceStartTime <= latestTraceTimestamp {
-			logger.V(2).Info(fmt.Sprintf("Trace is outdated. Trace start time: %s, Latest trace timestamp: %s", traceStartTimeFormatted, latestTraceTimestampFormatted))
-			continue
-		}
-		latestTraceTimestamp = traceStartTime
-		logger.V(2).Info(fmt.Sprintf("New trace found. Trace start time: %s", traceStartTimeFormatted))
-		// 初始化 Latencies 结构体
-		var latencies LatencyData
-		traceCount := 0
-		// 遍历所有 spans，提取延迟信息
-		for _, span := range latestTrace.Spans {
-			// Extract span.kind from tags
-			spanKind := ""
-			isString := false
-			for _, tag := range span.Tags {
-				if tag.Key == "span.kind" && tag.Type == "string" {
-					// Perform type assertion
-					if val, ok := tag.Value.(string); ok {
-						spanKind = val
-						isString = true
-					} else {
-						logger.V(2).Info("span.kind is not a string", "value", tag.Value)
-					}
-					break
-				}
-			}
-			if !isString {
-				continue
-			}
-			// 根据服务名和 span 类型来计算延迟
-			operation := span.OperationName
-			durationMs := float64(span.Duration) / 1000.0 // 将微秒转换为毫秒
-
-			switch {
-			// 对于 client 服务，计算 client 类型 span 的延迟
-			case strings.Contains(operation, "client.default.svc.cluster.local") && spanKind == "client":
-				latencies.client_latency = durationMs
-				traceCount++
-			// 对于其他服务，计算 server 类型 span 的延迟
-			case strings.Contains(operation, "aggregator.default.svc.cluster.local") && spanKind == "server":
-				latencies.aggregator_latency = durationMs
-				traceCount++
-			case strings.Contains(operation, "detection.default.svc.cluster.local") && spanKind == "server":
-				latencies.detection_latency = durationMs
-				traceCount++
-			case strings.Contains(operation, "machine-learning.default.svc.cluster.local") && spanKind == "server":
-				latencies.ml_latency = durationMs
-				traceCount++
-			case strings.Contains(operation, "db.default.svc.cluster.local") && spanKind == "server":
-				latencies.db_latency = durationMs
-				traceCount++
-			}
-		}
-		if traceCount < 5 {
-			logger.V(2).Info("Not enough trace data", "traceCount", traceCount)
-			continue
-		}
-		// 获取当前的 estimatedRT
-		currentRT := estimatedRT.Get()
-
+	// 获取当前的 estimatedRT
+	currentMA := estimatedRT.Get()
+	if currentMA == 0 {
+		currentMA = latencies[0].client_latency
+	} else {
 		// 更新移动平均值的函数
-		updateLatency := func(current, sample float64, alpha float64) float64 {
-			if current == 0 {
-				return sample
-			}
-			return (1-alpha)*current + alpha*sample
-		}
-
-		// 计算并更新每个延迟的移动平均值
-		currentRT.client_latency = updateLatency(currentRT.client_latency, latencies.client_latency, config.Alpha)
-		currentRT.aggregator_latency = updateLatency(currentRT.aggregator_latency, latencies.aggregator_latency, config.Alpha)
-		currentRT.detection_latency = updateLatency(currentRT.detection_latency, latencies.detection_latency, config.Alpha)
-		currentRT.ml_latency = updateLatency(currentRT.ml_latency, latencies.ml_latency, config.Alpha)
-		currentRT.db_latency = updateLatency(currentRT.db_latency, latencies.db_latency, config.Alpha)
-
-		// 更新 estimatedRT
-		estimatedRT.Set(currentRT)
-		logger.V(1).Info(fmt.Sprintf("client_latency: %.2f, aggregator_latency: %.2f, detection_latency: %.2f, ml_latency: %.2f, db_latency: %.2f", currentRT.client_latency, currentRT.aggregator_latency, currentRT.detection_latency, currentRT.ml_latency, currentRT.db_latency))
+		latency := currentMA
+		currentMA = (1-config.Alpha)*latency + config.Alpha*latencies[0].client_latency
 	}
+
+	// 更新 estimatedRT
+	estimatedRT.Set(currentMA)
+	return latestTraceStartTime
 }
 
 func main() {
@@ -469,7 +393,7 @@ func main() {
 	output_file := flag.String("output", "", "The output file")
 	flag.Parse()
 	// 创建data exporter
-	dataExporter := de.NewDataExporter(*output_file, *strategy == "rl")
+	dataExporter := de.NewDataExporter(*output_file, de.DataExporterType(*strategy))
 	defer dataExporter.Close()
 
 	logger := klog.NewKlogr()
@@ -488,8 +412,14 @@ func main() {
 	}
 	if !*is_tester {
 		go func() {
+			tsDataExporter := de.NewDataExporter(*output_file, de.TIME_SERIES)
+			lastUpdateTime := time.Now()
 			for {
-				updateTrace(ctx, config)
+				updatedTime := updateEastimateMA(ctx, config, lastUpdateTime)
+				if updatedTime != lastUpdateTime {
+					tsDataExporter.WriteTS(updatedTime.Unix(), estimatedRT.Get())
+					lastUpdateTime = updatedTime
+				}
 				time.Sleep(config.PollingPeriod)
 			}
 		}()

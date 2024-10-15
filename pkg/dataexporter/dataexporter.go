@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 )
 
 var rlHeader = []string{
@@ -29,12 +30,34 @@ var bestEffortHeader = []string{
 	"db_latency",
 }
 
+var timeSeriesHeader = []string{
+	"timestamp",
+	"human_readable_timestamp",
+	"latency",
+}
+
+var reschedulingHeader = []string{
+	"timestamp",
+	"target_node",
+	"target_pod",
+	"is_stopped",
+}
+
+type DataExporterType string
+
+const (
+	REINFORCEMENT DataExporterType = "rl"
+	BEST_EFFORT   DataExporterType = "be"
+	TIME_SERIES   DataExporterType = "ts"
+	RESCHEUDLING  DataExporterType = "rs"
+)
+
 type DataExporter struct {
 	file      *os.File
 	csvwriter *csv.Writer
 }
 
-func NewDataExporter(outputFile string, isRL bool) *DataExporter {
+func NewDataExporter(outputFile string, exporterType DataExporterType) *DataExporter {
 	var file *os.File
 	var err error
 
@@ -62,10 +85,15 @@ func NewDataExporter(outputFile string, isRL bool) *DataExporter {
 		log.Fatalf("Error getting file info: %v", err)
 	}
 	if fileInfo.Size() == 0 {
-		if isRL {
+		switch exporterType {
+		case REINFORCEMENT:
 			writer.Write(rlHeader)
-		} else {
+		case BEST_EFFORT:
 			writer.Write(bestEffortHeader)
+		case TIME_SERIES:
+			writer.Write(timeSeriesHeader)
+		case RESCHEUDLING:
+			writer.Write(reschedulingHeader)
 		}
 	}
 	return &DataExporter{file: file, csvwriter: writer}
@@ -113,6 +141,26 @@ func (de *DataExporter) WriteBE(
 		fmt.Sprintf("%.2f", detection_latency),
 		fmt.Sprintf("%.2f", ml_latency),
 		fmt.Sprintf("%.2f", db_latency),
+	}
+	return de.csvwriter.Write(record)
+}
+
+func (de *DataExporter) WriteTS(unix_timestamp int64, latency float64) error {
+	formatted_timestamp := time.Unix(unix_timestamp, 0).Format(time.DateTime)
+	record := []string{
+		fmt.Sprintf("%d", unix_timestamp),
+		formatted_timestamp,
+		fmt.Sprintf("%.2f", latency),
+	}
+	return de.csvwriter.Write(record)
+}
+
+func (de *DataExporter) WriteRS(unix_timestamp int64, target_node, target_pod string, is_stopped bool) error {
+	record := []string{
+		fmt.Sprintf("%d", unix_timestamp),
+		target_node,
+		target_pod,
+		fmt.Sprintf("%t", is_stopped),
 	}
 	return de.csvwriter.Write(record)
 }
