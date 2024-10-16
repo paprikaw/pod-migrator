@@ -152,7 +152,12 @@ func (de *DataExporter) WriteTS(unix_timestamp int64, latency float64) error {
 		formatted_timestamp,
 		fmt.Sprintf("%.2f", latency),
 	}
-	return de.csvwriter.Write(record)
+	err := de.csvwriter.Write(record)
+	if err != nil {
+		return err
+	}
+	de.csvwriter.Flush()
+	return de.csvwriter.Error()
 }
 
 func (de *DataExporter) WriteRS(unix_timestamp int64, target_node, target_pod string, is_stopped bool) error {

@@ -7,3 +7,4 @@ out.json
 id_rsa.pub
 outputdqn.log
 outputppo.log
+*.csv

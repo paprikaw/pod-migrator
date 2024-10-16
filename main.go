@@ -22,7 +22,7 @@ import (
 )
 
 var startWaitingTime = 60 * time.Second
-var endWaitingTime = 20 * time.Second
+var endWaitingTime = 60 * time.Second
 
 type FailedToGetValidTraceError struct {
 	err error
@@ -182,7 +182,7 @@ func startOneReschedulingEpisode(ctx context.Context, config *Config, migrator *
 			logger.V(1).Info("Stop the migration")
 			break
 		}
-		err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode, int32(replicaCnt))
+		err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
 		if err != nil {
 			logger.Error(err, "Failed to migrate Pod")
 			continue
@@ -209,7 +209,7 @@ func startOneReschedulingEpisode(ctx context.Context, config *Config, migrator *
 	)
 	return nil
 }
-func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, replicaCnt int) {
+func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, replicaCnt int, thresholdInvokingCh chan bool) {
 	// Import necessary packages
 	// TODO: 完成monitor的数据写入逻辑，以供后面case study的时候记录
 	interval := 10 * time.Second // Set monitoring interval to 5 minutes
@@ -220,27 +220,49 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 		ticker.Reset(interval)
 		select {
 		case <-ticker.C:
+			// latency := estimatedRT.Get()
+			// logger.V(1).Info("----------Monitoring process starts----------")
+			// if latency > config.QosThreshold {
+			// 	waitForPodReady(ctx, config, queryClient)
+			// 	logger.V(1).Info("Current latency", "latency", latency)
+			// 	response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
+			// 	if err != nil {
+			// 		logger.Error(err, "Failed to get migration result")
+			// 		continue
+			// 	}
+			// 	if response.IsStop {
+			// 		logger.V(1).Info("Skip this migration")
+			// 		continue
+			// 	}
+
+			// 	err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
+			// 	if err != nil {
+			// 		logger.Error(err, "Failed to migrate Pod")
+			// 		continue
+			// 	}
+			// } else {
+			// 	logger.V(1).Info("Current latency is within the threshold", "latency", latency)
+			// }
+		case <-thresholdInvokingCh:
 			latency := estimatedRT.Get()
 			logger.V(1).Info("----------Monitoring process starts----------")
-			if latency > config.QosThreshold {
-				logger.V(1).Info("Current latency", "latency", latency)
-				response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
-				if err != nil {
-					logger.Error(err, "Failed to get migration result")
-					continue
-				}
-				if response.IsStop {
-					logger.V(1).Info("Skip this migration")
-					continue
-				}
+			logger.V(1).Info("----------Invoking by threshold----------")
+			waitForPodReady(ctx, config, queryClient)
+			logger.V(1).Info("Current latency", "latency", latency)
+			response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
+			if err != nil {
+				logger.Error(err, "Failed to get migration result")
+				continue
+			}
+			if response.IsStop {
+				logger.V(1).Info("Skip this migration")
+				continue
+			}
 
-				err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode, int32(replicaCnt))
-				if err != nil {
-					logger.Error(err, "Failed to migrate Pod")
-					continue
-				}
-			} else {
-				logger.V(1).Info("Current latency is within the threshold", "latency", latency)
+			err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
+			if err != nil {
+				logger.Error(err, "Failed to migrate Pod")
+				continue
 			}
 		case <-ctx.Done():
 			return
@@ -410,6 +432,7 @@ func main() {
 		fmt.Println("Error loading config:", err)
 		return
 	}
+	thresholdInvokingCh := make(chan bool, 1)
 	if !*is_tester {
 		go func() {
 			tsDataExporter := de.NewDataExporter(*output_file, de.TIME_SERIES)
@@ -419,6 +442,13 @@ func main() {
 				if updatedTime != lastUpdateTime {
 					tsDataExporter.WriteTS(updatedTime.Unix(), estimatedRT.Get())
 					lastUpdateTime = updatedTime
+				}
+				currentLatency := estimatedRT.Get()
+				if currentLatency > config.QosThreshold {
+					select {
+					case thresholdInvokingCh <- true:
+					default:
+					}
 				}
 				time.Sleep(config.PollingPeriod)
 			}
@@ -446,6 +476,6 @@ func main() {
 		}
 	} else {
 		// Start Monitoring Loop
-		monitor(ctx, config, migrator, httpClient, queryClient, *replica_cnt)
+		monitor(ctx, config, migrator, httpClient, queryClient, *replica_cnt, thresholdInvokingCh)
 	}
 }

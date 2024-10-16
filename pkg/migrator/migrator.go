@@ -114,7 +114,7 @@ func (m *Migrator) waitForPodReady(ctx context.Context, pollingPeriod time.Durat
 	}
 }
 
-func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, namespace string, podName string, appLabel string, targetNode string, replicaCnt int32) error {
+func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, namespace string, podName string, appLabel string, targetNode string) error {
 	deploymentName := podName[:strings.LastIndex(podName[:strings.LastIndex(podName, "-")], "-")]
 	logger := klog.FromContext(ctx)
 	// Get all pods of the same deployment
@@ -177,21 +177,17 @@ func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, 
 	}
 	logger.V(2).Info("cordon nodes状态达到预期")
 
+	var originalReplicas int32 = 0
 	// Step 3: 增加 replicas 数量
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		logger.V(3).Info("修改replicaset", "podName", podName)
 		deployment, err := m.clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+		originalReplicas = *deployment.Spec.Replicas
 		if err != nil {
 			logger.Error(err, "获取 Deployment 失败")
 			return err
 		}
-		originalReplicas := *deployment.Spec.Replicas
-		if originalReplicas != replicaCnt {
-			err = fmt.Errorf("原始 replicas 数量 %d 不等于预期 replicas 数量 %d", originalReplicas, replicaCnt)
-			logger.Error(err, "原始 replicas 数量不等于预期 replicas 数量")
-			return err
-		}
-		newReplicas := replicaCnt + 1
+		newReplicas := originalReplicas + 1
 		deployment.Spec.Replicas = &newReplicas
 		logger.V(3).Info("修改replica", "newReplicas", newReplicas)
 		_, err = m.clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
@@ -244,7 +240,7 @@ func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, 
 			logger.Error(err, "获取deployment失败")
 			return err
 		}
-		deployment.Spec.Replicas = &replicaCnt
+		deployment.Spec.Replicas = &originalReplicas
 		_, err = m.clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 		if err != nil {
 			logger.Error(err, "减少replica失败")
@@ -261,6 +257,7 @@ func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, 
 	// 2: 新的replicaSet中的pod处于正常状态
 	// 3: targetPod不在replicaSet中
 	// 4: 出现一个新的pod
+	// 5: 新的pod在目标节点上
 	for {
 		time.Sleep(pollingPeriod)
 		podList, err := m.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
@@ -270,8 +267,8 @@ func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, 
 			logger.Error(err, "无法获取 Pods 列表")
 			return err
 		}
-		if len(podList.Items) != int(replicaCnt) {
-			logger.V(2).Info("新的replicaSet数量不等于预期", "expected", replicaCnt, "actual", len(podList.Items))
+		if len(podList.Items) != int(originalReplicas) {
+			logger.V(2).Info("新的replicaSet数量不等于预期", "expected", originalReplicas, "actual", len(podList.Items))
 			continue
 		}
 		for _, pod := range podList.Items {
@@ -297,7 +294,7 @@ func (m *Migrator) MigratePod(ctx context.Context, pollingPeriod time.Duration, 
 					}
 				}
 				if allReady {
-					logger.V(2).Info("新的 Pod 已经处于 Running 且 Ready 状态", "podName", pod.Name)
+					logger.V(2).Info("新的 Pod 已经处于 Running 且 Ready 状态", "podName", pod.Name, "node", pod.Spec.NodeName)
 					isNewPodRunning = true
 					break
 				}
