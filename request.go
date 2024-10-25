@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"strings"
 
+	de "github.com/paprikaw/rscheduler/pkg/dataexporter"
 	m "github.com/paprikaw/rscheduler/pkg/migrator"
 	d "github.com/paprikaw/rscheduler/pkg/model"
 	q "github.com/paprikaw/rscheduler/pkg/queryclient"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -32,8 +34,100 @@ func GetRequest(ctx context.Context, config *Config, queryClient *q.QueryClient,
 	return &request, nil
 }
 
-func GetMigrationResult(ctx context.Context, config *Config, queryClient *q.QueryClient, httpClient *http.Client, migrator *m.Migrator) (*d.Response, error) {
+func GetPodDistribution(ctx context.Context, config *Config, migrator *m.Migrator) (aggregator de.PodDistribution, detection de.PodDistribution, ml de.PodDistribution, db de.PodDistribution, err error) {
+	pods, err := migrator.GetK8sClient().CoreV1().Pods(config.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: config.AppLabel,
+	})
+	for _, pod := range pods.Items {
+		nodeName := pod.Spec.NodeName
+		switch {
+		case strings.HasPrefix(pod.Name, "aggregator"):
+			switch {
+			case strings.Contains(nodeName, "cloud-vm-8-1"):
+				aggregator.Cloud_8_1++
+			case strings.Contains(nodeName, "cloud-vm-8-2"):
+				aggregator.Cloud_8_2++
+			case strings.Contains(nodeName, "edge-vm-4-1"):
+				aggregator.Edge_4_1++
+			case strings.Contains(nodeName, "edge-vm-4-2"):
+				aggregator.Edge_4_2++
+			case strings.Contains(nodeName, "edge-vm-2-1"):
+				aggregator.Edge_2_1++
+			case strings.Contains(nodeName, "edge-vm-2-2"):
+				aggregator.Edge_2_2++
+			}
+		case strings.HasPrefix(pod.Name, "detection"):
+			switch {
+			case strings.Contains(nodeName, "cloud-vm-8-1"):
+				detection.Cloud_8_1++
+			case strings.Contains(nodeName, "cloud-vm-8-2"):
+				detection.Cloud_8_2++
+			case strings.Contains(nodeName, "edge-vm-4-1"):
+				detection.Edge_4_1++
+			case strings.Contains(nodeName, "edge-vm-4-2"):
+				detection.Edge_4_2++
+			case strings.Contains(nodeName, "edge-vm-2-1"):
+				detection.Edge_2_1++
+			case strings.Contains(nodeName, "edge-vm-2-2"):
+				detection.Edge_2_2++
+			}
+		case strings.HasPrefix(pod.Name, "machine-learning"):
+			switch {
+			case strings.Contains(nodeName, "cloud-vm-8-1"):
+				ml.Cloud_8_1++
+			case strings.Contains(nodeName, "cloud-vm-8-2"):
+				ml.Cloud_8_2++
+			case strings.Contains(nodeName, "edge-vm-4-1"):
+				ml.Edge_4_1++
+			case strings.Contains(nodeName, "edge-vm-4-2"):
+				ml.Edge_4_2++
+			case strings.Contains(nodeName, "edge-vm-2-1"):
+				ml.Edge_2_1++
+			case strings.Contains(nodeName, "edge-vm-2-2"):
+				ml.Edge_2_2++
+			}
+		case strings.HasPrefix(pod.Name, "db"):
+			switch {
+			case strings.Contains(nodeName, "cloud-vm-8-1"):
+				db.Cloud_8_1++
+			case strings.Contains(nodeName, "cloud-vm-8-2"):
+				db.Cloud_8_2++
+			case strings.Contains(nodeName, "edge-vm-4-1"):
+				db.Edge_4_1++
+			case strings.Contains(nodeName, "edge-vm-4-2"):
+				db.Edge_4_2++
+			case strings.Contains(nodeName, "edge-vm-2-1"):
+				db.Edge_2_1++
+			case strings.Contains(nodeName, "edge-vm-2-2"):
+				db.Edge_2_2++
+			}
+		}
+	}
+	if err != nil {
+		return de.PodDistribution{}, de.PodDistribution{}, de.PodDistribution{}, de.PodDistribution{}, err
+	}
+	return aggregator, detection, ml, db, nil
+}
+func GetMigrationResult(ctx context.Context, config *Config, queryClient *q.QueryClient, httpClient *http.Client, migrator *m.Migrator, failedNodes []string) (*d.Response, error) {
 	request, err := GetRequest(ctx, config, queryClient, migrator)
+	logger := klog.FromContext(ctx)
+	for _, node := range failedNodes {
+		nodeData := request.ClusterState.Nodes[node]
+		nodeData.CPUAvailability = 0
+		nodeData.MemoryAvailability = 0
+		request.ClusterState.Nodes[node] = nodeData
+		for podName, deployableNodes := range request.PodDeployable {
+			for i, deployableNode := range deployableNodes {
+				if deployableNode == node {
+					deployableNodes = append(deployableNodes[:i], deployableNodes[i+1:]...)
+					break
+				}
+			}
+			request.PodDeployable[podName] = deployableNodes
+		}
+	}
+	logger.V(3).Info("当前集群状态", "state", request.ClusterState)
+	logger.V(3).Info("当前pod部署情况", "state", request.PodDeployable)
 	if err != nil {
 		return nil, err
 	}

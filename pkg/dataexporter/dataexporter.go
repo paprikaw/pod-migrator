@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+type PodDistribution struct {
+	Cloud_8_1 int
+	Cloud_8_2 int
+	Edge_4_1  int
+	Edge_4_2  int
+	Edge_2_1  int
+	Edge_2_2  int
+}
+
 var rlHeader = []string{
 	"start_total_latency",
 	"end_total_latency",
@@ -34,6 +43,11 @@ var timeSeriesHeader = []string{
 	"timestamp",
 	"human_readable_timestamp",
 	"latency",
+	"current_node",
+	"target_node",
+	"target_pod",
+	"failed_node",
+	"event",
 }
 
 var reschedulingHeader = []string{
@@ -42,14 +56,88 @@ var reschedulingHeader = []string{
 	"target_pod",
 	"is_stopped",
 }
+var podPlacementHeader = []string{
+	"aggregator_cloud_8_1",
+	"aggregator_cloud_8_2",
+	"aggregator_edge_4_1",
+	"aggregator_edge_4_2",
+	"aggregator_edge_2_1",
+	"aggregator_edge_2_2",
+	"detection_cloud_8_1",
+	"detection_cloud_8_2",
+	"detection_edge_4_1",
+	"detection_edge_4_2",
+	"detection_edge_2_1",
+	"detection_edge_2_2",
+	"ml_cloud_8_1",
+	"ml_cloud_8_2",
+	"ml_edge_4_1",
+	"ml_edge_4_2",
+	"ml_edge_2_1",
+	"ml_edge_2_2",
+	"db_cloud_8_1",
+	"db_cloud_8_2",
+	"db_edge_4_1",
+	"db_edge_4_2",
+	"db_edge_2_1",
+	"db_edge_2_2",
+}
+
+var timeSeriesWithPodPlacementHeader = []string{
+	"timestamp",
+	"human_readable_timestamp",
+	"latency",
+	"current_node",
+	"target_node",
+	"target_pod",
+	"aggregator_cloud_8_1",
+	"aggregator_cloud_8_2",
+	"aggregator_edge_4_1",
+	"aggregator_edge_4_2",
+	"aggregator_edge_2_1",
+	"aggregator_edge_2_2",
+	"detection_cloud_8_1",
+	"detection_cloud_8_2",
+	"detection_edge_4_1",
+	"detection_edge_4_2",
+	"detection_edge_2_1",
+	"detection_edge_2_2",
+	"ml_cloud_8_1",
+	"ml_cloud_8_2",
+	"ml_edge_4_1",
+	"ml_edge_4_2",
+	"ml_edge_2_1",
+	"ml_edge_2_2",
+	"db_cloud_8_1",
+	"db_cloud_8_2",
+	"db_edge_4_1",
+	"db_edge_4_2",
+	"db_edge_2_1",
+	"db_edge_2_2",
+	"event",
+}
 
 type DataExporterType string
 
 const (
-	REINFORCEMENT DataExporterType = "rl"
-	BEST_EFFORT   DataExporterType = "be"
-	TIME_SERIES   DataExporterType = "ts"
-	RESCHEUDLING  DataExporterType = "rs"
+	REINFORCEMENT    DataExporterType = "rl"
+	BEST_EFFORT      DataExporterType = "be"
+	TIME_SERIES      DataExporterType = "ts"
+	RESCHEUDLING     DataExporterType = "rs"
+	POD_DISTRIBUTION DataExporterType = "distri"
+)
+
+type EventType string
+
+const (
+	LATENCY          EventType = "latency"
+	NODE_FAILED      EventType = "node_failed"
+	NODE_RECOVERED   EventType = "node_recovered"
+	REPLICA_CHANGED  EventType = "replica_changed"
+	RESCHEDULING     EventType = "rescheduling"
+	POD_DISTRO       EventType = "pod_distribution"
+	AUTOSCALING      EventType = "autoscaling"
+	EXPERIMENT_START EventType = "experiment_start"
 )
 
 type DataExporter struct {
@@ -94,6 +182,8 @@ func NewDataExporter(outputFile string, exporterType DataExporterType) *DataExpo
 			writer.Write(timeSeriesHeader)
 		case RESCHEUDLING:
 			writer.Write(reschedulingHeader)
+		case POD_DISTRIBUTION:
+			writer.Write(podPlacementHeader)
 		}
 	}
 	return &DataExporter{file: file, csvwriter: writer}
@@ -125,6 +215,37 @@ func (de *DataExporter) WriteRL(
 		fmt.Sprintf("%.2f", end_db_latency),
 		fmt.Sprintf("%d", step),
 	}
+	de.csvwriter.Flush()
+	return de.csvwriter.Write(record)
+}
+func (de *DataExporter) WritePodPlacement(aggregator, detection, ml, db PodDistribution) error {
+	record := []string{
+		fmt.Sprintf("%d", aggregator.Cloud_8_1),
+		fmt.Sprintf("%d", aggregator.Cloud_8_2),
+		fmt.Sprintf("%d", aggregator.Edge_4_1),
+		fmt.Sprintf("%d", aggregator.Edge_4_2),
+		fmt.Sprintf("%d", aggregator.Edge_2_1),
+		fmt.Sprintf("%d", aggregator.Edge_2_2),
+		fmt.Sprintf("%d", detection.Cloud_8_1),
+		fmt.Sprintf("%d", detection.Cloud_8_2),
+		fmt.Sprintf("%d", detection.Edge_4_1),
+		fmt.Sprintf("%d", detection.Edge_4_2),
+		fmt.Sprintf("%d", detection.Edge_2_1),
+		fmt.Sprintf("%d", detection.Edge_2_2),
+		fmt.Sprintf("%d", ml.Cloud_8_1),
+		fmt.Sprintf("%d", ml.Cloud_8_2),
+		fmt.Sprintf("%d", ml.Edge_4_1),
+		fmt.Sprintf("%d", ml.Edge_4_2),
+		fmt.Sprintf("%d", ml.Edge_2_1),
+		fmt.Sprintf("%d", ml.Edge_2_2),
+		fmt.Sprintf("%d", db.Cloud_8_1),
+		fmt.Sprintf("%d", db.Cloud_8_2),
+		fmt.Sprintf("%d", db.Edge_4_1),
+		fmt.Sprintf("%d", db.Edge_4_2),
+		fmt.Sprintf("%d", db.Edge_2_1),
+		fmt.Sprintf("%d", db.Edge_2_2),
+	}
+	de.csvwriter.Flush()
 	return de.csvwriter.Write(record)
 }
 
@@ -142,16 +263,67 @@ func (de *DataExporter) WriteBE(
 		fmt.Sprintf("%.2f", ml_latency),
 		fmt.Sprintf("%.2f", db_latency),
 	}
+	de.csvwriter.Flush()
 	return de.csvwriter.Write(record)
 }
 
-func (de *DataExporter) WriteTS(unix_timestamp int64, latency float64) error {
+func (de *DataExporter) WriteTS(unix_timestamp int64, latency float64, currentNode string, targetNode string, targetPod string, failedNode string, event EventType) error {
 	formatted_timestamp := time.Unix(unix_timestamp, 0).Format(time.DateTime)
 	record := []string{
 		fmt.Sprintf("%d", unix_timestamp),
 		formatted_timestamp,
 		fmt.Sprintf("%.2f", latency),
+		currentNode,
+		targetNode,
+		targetPod,
+		failedNode,
+		string(event),
 	}
+	err := de.csvwriter.Write(record)
+	if err != nil {
+		return err
+	}
+	de.csvwriter.Flush()
+	return de.csvwriter.Error()
+}
+func (de *DataExporter) WriteTSWithPodPlacement(unix_timestamp int64, latency float64, currentNode string, targetNode string, targetPod string, aggregator, detection, ml, db PodDistribution, event EventType) error {
+	formatted_timestamp := time.Unix(unix_timestamp, 0).Format(time.DateTime)
+	record := []string{
+		fmt.Sprintf("%d", unix_timestamp),
+		formatted_timestamp,
+		fmt.Sprintf("%.2f", latency),
+		currentNode,
+		targetNode,
+		targetPod,
+	}
+	podPlacementRecord := []string{
+		fmt.Sprintf("%d", aggregator.Cloud_8_1),
+		fmt.Sprintf("%d", aggregator.Cloud_8_2),
+		fmt.Sprintf("%d", aggregator.Edge_4_1),
+		fmt.Sprintf("%d", aggregator.Edge_4_2),
+		fmt.Sprintf("%d", aggregator.Edge_2_1),
+		fmt.Sprintf("%d", aggregator.Edge_2_2),
+		fmt.Sprintf("%d", detection.Cloud_8_1),
+		fmt.Sprintf("%d", detection.Cloud_8_2),
+		fmt.Sprintf("%d", detection.Edge_4_1),
+		fmt.Sprintf("%d", detection.Edge_4_2),
+		fmt.Sprintf("%d", detection.Edge_2_1),
+		fmt.Sprintf("%d", detection.Edge_2_2),
+		fmt.Sprintf("%d", ml.Cloud_8_1),
+		fmt.Sprintf("%d", ml.Cloud_8_2),
+		fmt.Sprintf("%d", ml.Edge_4_1),
+		fmt.Sprintf("%d", ml.Edge_4_2),
+		fmt.Sprintf("%d", ml.Edge_2_1),
+		fmt.Sprintf("%d", ml.Edge_2_2),
+		fmt.Sprintf("%d", db.Cloud_8_1),
+		fmt.Sprintf("%d", db.Cloud_8_2),
+		fmt.Sprintf("%d", db.Edge_4_1),
+		fmt.Sprintf("%d", db.Edge_4_2),
+		fmt.Sprintf("%d", db.Edge_2_1),
+		fmt.Sprintf("%d", db.Edge_2_2),
+	}
+	record = append(record, podPlacementRecord...)
+	record = append(record, string(event))
 	err := de.csvwriter.Write(record)
 	if err != nil {
 		return err
@@ -167,6 +339,7 @@ func (de *DataExporter) WriteRS(unix_timestamp int64, target_node, target_pod st
 		target_pod,
 		fmt.Sprintf("%t", is_stopped),
 	}
+	de.csvwriter.Flush()
 	return de.csvwriter.Write(record)
 }
 

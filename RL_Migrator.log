@@ -1,0 +1,30 @@
+Invalid mode
+E1020 10:59:09.512359 2117839 case.go:45] "failed to set node as unschedulable" err="nodes \"tb-edge-tm-4-1\" not found" node="tb-edge-tm-4-1"
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x8 pc=0x52f857]
+
+goroutine 1 [running]:
+github.com/paprikaw/rscheduler/pkg/dataexporter.(*DataExporter).Close(0x0)
+	/home/ubuntu/pod-migrator/pkg/dataexporter/dataexporter.go:257 +0x17
+main.main()
+	/home/ubuntu/pod-migrator/main.go:419 +0xa62
+exit status 2
+Invalid mode
+I1020 11:01:06.680871 2118422 case.go:40] "successfully set node as unschedulable" node="tb-edge-vm-4-1"
+I1020 11:01:06.681110 2118422 migrator.go:378] "检查uncordon的节点数量是否符合预期" cordonNodeCnt=1
+I1020 11:01:06.686851 2118422 case.go:68] "cordon nodes状态达到预期"
+I1020 11:01:06.687000 2118422 migrator.go:70] "驱逐 Deployment 下的所有 Pod" appLabel="deployment=mubench"
+E1020 11:01:06.687048 2118422 migrator.go:81] "驱逐 Pod 失败" err="resource name may not be empty"
+E1020 11:01:06.687058 2118422 case.go:71] "驱逐 Deployment 下的所有 Pod 失败" err="resource name may not be empty"
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x8 pc=0x52f857]
+
+goroutine 1 [running]:
+github.com/paprikaw/rscheduler/pkg/dataexporter.(*DataExporter).Close(0x0)
+	/home/ubuntu/pod-migrator/pkg/dataexporter/dataexporter.go:257 +0x17
+main.main()
+	/home/ubuntu/pod-migrator/main.go:419 +0xa62
+exit status 2
+I1020 11:11:11.689461 2127675 queryclient.go:193] "检查 Deployment 的 Pods 是否 Ready"
+I1020 11:11:11.743516 2127675 main.go:114] "Pods are ready"
+signal: interrupt

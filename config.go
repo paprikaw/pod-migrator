@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	URL                  string
+	JaegerURL            string
 	ServiceName          string
 	Lookback             string
 	Limit                int
@@ -22,16 +22,19 @@ type Config struct {
 	QosThreshold         float64
 	MaxPodWaitingRetries int
 	MaxStep              int
+
+	FailedNode      string
+	EntryServiceURL string
 }
 
 func ConfigFromEnv() (*Config, error) {
 	config := &Config{}
 
 	// 加载基础配置
-	config.URL = os.Getenv("JAEGER_URL")
+	config.JaegerURL = os.Getenv("JAEGER_URL")
 	config.ServiceName = os.Getenv("SERVICE_NAME")
 	config.Lookback = os.Getenv("LOOKBACK")
-
+	config.EntryServiceURL = os.Getenv("ENTRY_SERVICE_URL")
 	// Limit 参数转换为整数
 	limit, err := strconv.Atoi(os.Getenv("LIMIT"))
 	if err != nil {
@@ -59,7 +62,7 @@ func ConfigFromEnv() (*Config, error) {
 	config.AppLabel = os.Getenv("APP_LABEL")
 	config.GatewayService = os.Getenv("GATEWAY_SERVICE")
 	config.Namespace = os.Getenv("NAMESPACE")
-
+	config.FailedNode = os.Getenv("FAILED_NODE")
 	// QosThreshold 转换为整数
 	qosThreshold, err := strconv.ParseFloat(os.Getenv("QOS_THRESHOLD"), 64)
 	if err != nil {

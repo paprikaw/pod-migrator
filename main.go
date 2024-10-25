@@ -22,7 +22,7 @@ import (
 )
 
 var startWaitingTime = 60 * time.Second
-var endWaitingTime = 60 * time.Second
+var endWaitingTime = 20 * time.Second
 
 type FailedToGetValidTraceError struct {
 	err error
@@ -33,6 +33,7 @@ func (e FailedToGetValidTraceError) Error() string {
 }
 
 type LatencyData struct {
+	traceStartTime     time.Time
 	client_latency     float64
 	aggregator_latency float64
 	detection_latency  float64
@@ -40,10 +41,18 @@ type LatencyData struct {
 	db_latency         float64
 }
 
+var schedulingMutex = sync.Mutex{}
+
 // Estimated Moving Average
 type EstimatedMA struct {
 	mu      sync.RWMutex
 	latency float64
+}
+
+// Estimated Moving Average
+type FailedNodes struct {
+	mu    sync.RWMutex
+	nodes map[string]bool
 }
 
 func (e *EstimatedMA) Get() float64 {
@@ -59,20 +68,43 @@ func (e *EstimatedMA) Set(val float64) {
 }
 
 var estimatedRT = &EstimatedMA{}
+var failedNodes = &FailedNodes{nodes: make(map[string]bool)}
 
-func waitForValidTraces(ctx context.Context, config *Config, maximumTraceCount int, minimumValidTraceCount int) (LatencyData, error) {
+func (f *FailedNodes) Add(node string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodes[node] = true
+}
+
+func (f *FailedNodes) Get() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	var nodes []string
+	for node := range f.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+func (f *FailedNodes) Remove(node string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.nodes, node)
+}
+
+func waitForValidTraces(ctx context.Context, config *Config, maximumTraceCount int, minimumValidTraceCount int, now time.Time) (LatencyData, error) {
 	logger := klog.FromContext(ctx)
 	retries := 0
 	var averageLatency LatencyData
 	for retries < config.MaxPodWaitingRetries {
 		retries++
-		result, _, err := getValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount, true, time.Time{})
+		result, err := getValidTraces(ctx, config, maximumTraceCount, true, now)
 		if err != nil {
 			logger.Error(err, "Failed to get immediate trace")
 			return LatencyData{}, err
 		}
 		if len(result) < minimumValidTraceCount {
-			logger.V(2).Info("Not enough valid trace data", "retries", retries)
+			logger.V(2).Info("Not enough valid trace data", "retries", retries, "number of results", len(result))
 			time.Sleep(config.PollingPeriod)
 			continue
 		}
@@ -99,20 +131,6 @@ func waitForValidTraces(ctx context.Context, config *Config, maximumTraceCount i
 	return averageLatency, nil
 }
 
-//	func getLatestValidTracesAvgLatency(ctx context.Context, config *Config, maximumTraceCount int, minimumValidTraceCount int, timeSpan int) (LatencyData, error) {
-//		latencies, err := getValidTraces(ctx, config, maximumTraceCount, timeSpan)
-//		if err != nil {
-//			return LatencyData{}, err
-//		}
-//		if len(latencies) < minimumValidTraceCount {
-//			return LatencyData{}, errors.New("not enough valid trace data")
-//		}
-//		latencySum := LatencyData{}
-//		for _, latency := range latencies {
-//			latencySum.client_latency += latency.client_latency
-//		}
-//		return latencies[0], nil
-//	}
 func waitForPodReady(ctx context.Context, config *Config, queryClient *q.QueryClient) error {
 	logger := klog.FromContext(ctx)
 	isPodReady := false
@@ -139,131 +157,47 @@ func waitForPodReady(ctx context.Context, config *Config, queryClient *q.QueryCl
 	return nil
 }
 
-func recordBestEffortData(ctx context.Context, config *Config, queryClient *q.QueryClient, dataExporter *de.DataExporter) (LatencyData, error) {
-	logger := klog.FromContext(ctx)
-	err := waitForPodReady(ctx, config, queryClient)
-	maximumTraceCount := 100
-	minimumValidTraceCount := 5
-	if err != nil {
-		return LatencyData{}, err
-	}
-	time.Sleep(startWaitingTime)
-	averageLatency, err := waitForValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount)
-	if err != nil {
-		return LatencyData{}, err
-	}
-	logger.V(1).Info("Best effort data recorded", "client_latency", averageLatency.client_latency, "aggregator_latency", averageLatency.aggregator_latency, "detection_latency", averageLatency.detection_latency, "ml_latency", averageLatency.ml_latency, "db_latency", averageLatency.db_latency)
-	dataExporter.WriteBE(averageLatency.client_latency, averageLatency.aggregator_latency, averageLatency.detection_latency, averageLatency.ml_latency, averageLatency.db_latency)
-	return averageLatency, nil
-}
-
-func startOneReschedulingEpisode(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, replicaCnt int, dataExporter *de.DataExporter) error {
-	maximumTraceCount := 100
-	minimumValidTraceCount := 5
-	logger := klog.FromContext(ctx)
-	err := waitForPodReady(ctx, config, queryClient)
-	if err != nil {
-		return err
-	}
-	time.Sleep(startWaitingTime)
-	startAverageLatency, err := waitForValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount)
-	if err != nil {
-		return err
-	}
-	step := 0
-	for step < config.MaxStep {
-		logger.V(1).Info("----------Rescheduling process starts----------")
-		response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
-		if err != nil {
-			logger.Error(err, "Failed to get migration result")
-			continue
-		}
-		if response.IsStop {
-			logger.V(1).Info("Stop the migration")
-			break
-		}
-		err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
-		if err != nil {
-			logger.Error(err, "Failed to migrate Pod")
-			continue
-		}
-		step++
-	}
-	time.Sleep(endWaitingTime)
-	endAverageLatency, err := waitForValidTraces(ctx, config, maximumTraceCount, minimumValidTraceCount)
-	if err != nil {
-		return err
-	}
-	dataExporter.WriteRL(
-		startAverageLatency.client_latency,
-		endAverageLatency.client_latency,
-		startAverageLatency.aggregator_latency,
-		endAverageLatency.aggregator_latency,
-		startAverageLatency.detection_latency,
-		endAverageLatency.detection_latency,
-		startAverageLatency.ml_latency,
-		endAverageLatency.ml_latency,
-		startAverageLatency.db_latency,
-		endAverageLatency.db_latency,
-		step,
-	)
-	return nil
-}
-func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, replicaCnt int, thresholdInvokingCh chan bool) {
+func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClient *http.Client, queryClient *q.QueryClient, dataExporter *de.DataExporter, thresholdInvokingCh chan bool, reschedulingDoneCh chan bool) {
 	// Import necessary packages
 	// TODO: 完成monitor的数据写入逻辑，以供后面case study的时候记录
 	interval := 10 * time.Second // Set monitoring interval to 5 minutes
 	logger := klog.FromContext(ctx)
 	ticker := time.NewTicker(interval)
+	waitForPodReady(ctx, config, queryClient)
 	defer ticker.Stop()
 	for {
 		ticker.Reset(interval)
 		select {
-		case <-ticker.C:
-			// latency := estimatedRT.Get()
-			// logger.V(1).Info("----------Monitoring process starts----------")
-			// if latency > config.QosThreshold {
-			// 	waitForPodReady(ctx, config, queryClient)
-			// 	logger.V(1).Info("Current latency", "latency", latency)
-			// 	response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
-			// 	if err != nil {
-			// 		logger.Error(err, "Failed to get migration result")
-			// 		continue
-			// 	}
-			// 	if response.IsStop {
-			// 		logger.V(1).Info("Skip this migration")
-			// 		continue
-			// 	}
-
-			// 	err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
-			// 	if err != nil {
-			// 		logger.Error(err, "Failed to migrate Pod")
-			// 		continue
-			// 	}
-			// } else {
-			// 	logger.V(1).Info("Current latency is within the threshold", "latency", latency)
-			// }
 		case <-thresholdInvokingCh:
 			latency := estimatedRT.Get()
 			logger.V(1).Info("----------Monitoring process starts----------")
 			logger.V(1).Info("----------Invoking by threshold----------")
 			waitForPodReady(ctx, config, queryClient)
+			schedulingMutex.Lock()
 			logger.V(1).Info("Current latency", "latency", latency)
-			response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator)
+			//TODO: 可能会有一些race condition
+			response, err := GetMigrationResult(ctx, config, queryClient, httpClient, migrator, failedNodes.Get())
 			if err != nil {
 				logger.Error(err, "Failed to get migration result")
+				schedulingMutex.Unlock()
 				continue
 			}
 			if response.IsStop {
 				logger.V(1).Info("Skip this migration")
+				select {
+				case reschedulingDoneCh <- true:
+				default:
+				}
+				schedulingMutex.Unlock()
 				continue
 			}
-
-			err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode)
+			err = migrator.MigratePod(ctx, config.PollingPeriod, config.Namespace, response.PodName, config.AppLabel, response.TargetNode, dataExporter, latency, true)
 			if err != nil {
 				logger.Error(err, "Failed to migrate Pod")
+				schedulingMutex.Unlock()
 				continue
 			}
+			schedulingMutex.Unlock()
 		case <-ctx.Done():
 			return
 		}
@@ -276,17 +210,19 @@ func monitor(ctx context.Context, config *Config, migrator *m.Migrator, httpClie
 // 3. trace start time start from {after}
 // 4. how many traces to get from jaeger api {maximumTraceCount}
 // If there is newer traces, also return back the start time of latest traces
-func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, spanTime int, fullSpan bool, after time.Time) ([]LatencyData, time.Time, error) {
+func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, fullSpan bool, after time.Time) ([]LatencyData, error) {
 	logger := klog.FromContext(ctx)
 	// 构建请求 URL
 	url := ""
-	url = fmt.Sprintf("%s?service=%s&limit=%d", config.URL, config.ServiceName, maximumTraceCount)
+	url = fmt.Sprintf("%s?service=%s&limit=%d", config.JaegerURL, config.ServiceName, maximumTraceCount)
 	latestTraceStartTime := after.UnixMicro()
+	logger.V(3).Info("Latest trace start time", "time", latestTraceStartTime)
+	logger.V(3).Info("Latest trace start time readable", "time", time.UnixMicro(latestTraceStartTime))
 	// 发送 HTTP 请求
 	resp, err := http.Get(url)
 	if err != nil {
 		logger.Error(err, "Error fetching trace")
-		return []LatencyData{}, time.Time{}, err
+		return []LatencyData{}, err
 	}
 	defer resp.Body.Close()
 
@@ -294,7 +230,7 @@ func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error(err, "Error reading response body")
-		return []LatencyData{}, time.Time{}, err
+		return []LatencyData{}, err
 	}
 
 	// 解析 JSON 响应
@@ -302,28 +238,26 @@ func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, 
 	err = json.Unmarshal(body, &traceResponse)
 	if err != nil {
 		log.Println("Error parsing JSON:", err)
-		return []LatencyData{}, time.Time{}, err
+		return []LatencyData{}, err
 	}
 
 	// 检查是否有数据
 	if len(traceResponse.Data) == 0 || len(traceResponse.Data[0].Spans) == 0 {
 		logger.V(2).Info("No trace data found")
-		return []LatencyData{}, time.Time{}, nil
+		return []LatencyData{}, err
 	}
 	var latencies []LatencyData
 	// 遍历所有 spans，提取延迟信息
-	for i := len(traceResponse.Data) - 1; i >= 0; i-- {
+	for i := 0; i < len(traceResponse.Data); i++ {
 		trace := traceResponse.Data[i]
 		latestTrace := traceResponse.Data[i]
 		traceStartTime := latestTrace.Spans[0].StartTime
-		if traceStartTime < after.UnixMicro()-int64(spanTime*1e6) {
-			continue
-		}
 		// 如果 trace 是旧的，则跳过
 		if traceStartTime < latestTraceStartTime {
+			// logger.V(0).Info("Trace is old", "traceStartTime", time.UnixMicro(traceStartTime), "latestTraceStartTime", time.UnixMicro(latestTraceStartTime))
 			continue
 		}
-		latestTraceStartTime = traceStartTime
+		// logger.V(0).Info("Trace is valid", "traceStartTime", time.UnixMicro(traceStartTime), "latestTraceStartTime", time.UnixMicro(latestTraceStartTime))
 		latency := LatencyData{}
 		traceCount := 0
 		isClientPresent := false
@@ -344,6 +278,7 @@ func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, 
 				}
 			}
 			if !isString {
+				logger.V(0).Info("span.kind is not a string", "value", spanKind)
 				continue
 			}
 			// 根据服务名和 span 类型来计算延迟
@@ -373,49 +308,147 @@ func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, 
 		if traceCount == 0 {
 			continue
 		}
+		if traceCount == 5 {
+			logger.V(0).Info("Trace has full spans", "traceStartTime", time.UnixMicro(traceStartTime), "latestTraceStartTime", time.UnixMicro(latestTraceStartTime))
+		}
 		// If the trace is not full span and client is present, or the trace has full spans, add it to the latencies
 		if (!fullSpan && isClientPresent) || traceCount == 5 {
+			latency.traceStartTime = time.UnixMicro(traceStartTime)
 			latencies = append(latencies, latency)
 		}
+
 	}
-	return latencies, time.UnixMicro(latestTraceStartTime), nil
+	return latencies, nil
 }
 
-func updateEastimateMA(ctx context.Context, config *Config, now time.Time) time.Time {
-	logger := klog.FromContext(ctx)
-	latencies, latestTraceStartTime, err := getValidTraces(ctx, config, 1, 5, false, now)
-	if err != nil {
-		logger.Error(err, "Failed to get valid traces")
-		return now
-	}
-	if len(latencies) == 0 {
-		return now
-	}
-	// 获取当前的 estimatedRT
-	currentMA := estimatedRT.Get()
-	if currentMA == 0 {
-		currentMA = latencies[0].client_latency
-	} else {
-		// 更新移动平均值的函数
-		latency := currentMA
-		currentMA = (1-config.Alpha)*latency + config.Alpha*latencies[0].client_latency
-	}
+func monitorLatencyJaeger(ctx context.Context, config *Config, dataExporter *de.DataExporter, thresholdInvokingCh chan bool, thresholdSatifiedCh chan bool, qoeThreshold int) {
+	lastUpdateTime := time.Now()
+	lastLatency := estimatedRT.Get()
+	for {
+		logger := klog.FromContext(ctx)
+		// Get all the traces that is from now, maximum 20 traces
+		latencies, err := getValidTraces(ctx, config, 20, true, lastUpdateTime)
+		if err != nil {
+			logger.Error(err, "Failed to get valid traces")
+			continue
+		}
+		if len(latencies) == 0 {
+			logger.V(0).Info("No valid traces found")
+			continue
+		}
 
-	// 更新 estimatedRT
-	estimatedRT.Set(currentMA)
-	return latestTraceStartTime
+		// Update and Calculate Estimated Moving Average
+		currentMA := estimatedRT.Get()
+		if currentMA == 0 {
+			currentMA = latencies[0].client_latency
+		} else {
+			// 更新移动平均值的函数
+			latency := currentMA
+			currentMA = (1-config.Alpha)*latency + config.Alpha*latencies[0].client_latency
+		}
+		estimatedRT.Set(currentMA)
+
+		earliestTraceStartTime := latencies[0].traceStartTime
+		if !earliestTraceStartTime.Before(lastUpdateTime) && currentMA != lastLatency {
+			dataExporter.WriteTS(earliestTraceStartTime.Unix(), currentMA, "", "", "", "", de.LATENCY)
+			lastUpdateTime = earliestTraceStartTime
+			lastLatency = currentMA
+		}
+
+		// 通知其他线程进行迁移
+		if currentMA > float64(qoeThreshold) {
+			select {
+			case thresholdInvokingCh <- true:
+			default:
+			}
+		} else if currentMA == 0 {
+			continue
+		} else {
+			select {
+			case thresholdSatifiedCh <- true:
+			default:
+			}
+		}
+		time.Sleep(config.PollingPeriod)
+	}
+}
+
+func monitorLatencyHttp(ctx context.Context, config *Config, dataExporter *de.DataExporter, queryClient *q.QueryClient, thresholdInvokingCh chan bool, thresholdSatifiedCh chan bool) {
+	// 新建一个http client，准备进行http请求
+	httpClient := &http.Client{
+		Timeout: 1 * time.Second,
+	}
+	url := config.EntryServiceURL
+	logger := klog.FromContext(ctx)
+	pollingPeriod := config.PollingPeriod
+	waitForPodReady(ctx, config, queryClient)
+	for {
+		// 计算延迟
+		startTime := time.Now()
+		_, err := httpClient.Get(url)
+		if err != nil {
+			logger.Error(err, "Failed to get entry service")
+		}
+		latency := time.Since(startTime)
+		currentMA := estimatedRT.Get()
+		if currentMA == 0 {
+			currentMA = float64(latency.Milliseconds())
+		} else {
+			// 更新移动平均值的函数
+			currentLatency := currentMA
+			currentMA = (1-config.Alpha)*currentLatency + config.Alpha*float64(latency.Milliseconds())
+		}
+		// 更新 estimatedRT
+		estimatedRT.Set(currentMA)
+		dataExporter.WriteTS(startTime.Unix(), currentMA, "", "", "", "", de.LATENCY)
+		if currentMA > config.QosThreshold {
+			select {
+			case thresholdInvokingCh <- true:
+			default:
+			}
+		} else if currentMA == 0 {
+			continue
+		} else {
+			select {
+			case thresholdSatifiedCh <- true:
+			default:
+			}
+		}
+		time.Sleep(pollingPeriod)
+	}
 }
 
 func main() {
 	// Initialize klog
 	klog.InitFlags(nil)
-	is_tester := flag.Bool("test", false, "Whether to run in test mode")
-	strategy := flag.String("strategy", "rl", "The strategy of the rescheduling")
-	replica_cnt := flag.Int("replicaCnt", 2, "The number of replicas")
+	mode := flag.String("mode", "monitoring", "The mode of the program: test, pod_distribution, monitoring")
+	strategy := flag.String("strategy", "rl", "The strategy of the rescheduling: rl, be")
 	output_file := flag.String("output", "", "The output file")
+	targetReplica := flag.Int("target_replica", -1, "The target replica")
+	caseWaitingTime := flag.Int("t", 120, "The waiting time for the case")
+	afterWaitTime := flag.Int("after_wait_time", 200, "The waiting time after the case")
+	qoeThreshold := flag.Int("qos", 250, "The QoS threshold for the case")
+	targetNodeA := flag.String("target_node_a", "", "The target node for the node failed case")
+	targetNodeB := flag.String("target_node_b", "", "The target node for the node failed case")
+	stableStartTime := flag.Int("stable_start_time", 60, "The start time for the stable period")
+	experimentWaitingTime := flag.Int("experiment_waiting_time", 60, "The waiting time for the experiment")
+	if *targetReplica == -1 && *mode == "autoscaling" {
+		fmt.Println("Target replica is not set")
+		return
+	}
 	flag.Parse()
 	// 创建data exporter
-	dataExporter := de.NewDataExporter(*output_file, de.DataExporterType(*strategy))
+	var dataExporter *de.DataExporter
+	if *mode == "pod_distribution" {
+		dataExporter = de.NewDataExporter(*output_file, de.POD_DISTRIBUTION)
+	} else if *mode == "test" {
+		dataExporter = de.NewDataExporter(*output_file, de.DataExporterType(*strategy))
+	} else if *mode == "monitoring" || *mode == "nodefailed" || *mode == "autoscaling" {
+		dataExporter = de.NewDataExporter(*output_file, de.TIME_SERIES)
+	} else {
+		fmt.Println("Invalid mode")
+		return
+	}
 	defer dataExporter.Close()
 
 	logger := klog.NewKlogr()
@@ -432,28 +465,14 @@ func main() {
 		fmt.Println("Error loading config:", err)
 		return
 	}
+	// // 创建一个通道来接收信号
+	// sigChan := make(chan os.Signal, 1)
+	// // 注册要接收的信号
+	// signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	thresholdInvokingCh := make(chan bool, 1)
-	if !*is_tester {
-		go func() {
-			tsDataExporter := de.NewDataExporter(*output_file, de.TIME_SERIES)
-			lastUpdateTime := time.Now()
-			for {
-				updatedTime := updateEastimateMA(ctx, config, lastUpdateTime)
-				if updatedTime != lastUpdateTime {
-					tsDataExporter.WriteTS(updatedTime.Unix(), estimatedRT.Get())
-					lastUpdateTime = updatedTime
-				}
-				currentLatency := estimatedRT.Get()
-				if currentLatency > config.QosThreshold {
-					select {
-					case thresholdInvokingCh <- true:
-					default:
-					}
-				}
-				time.Sleep(config.PollingPeriod)
-			}
-		}()
-	}
+	thresholdSatifiedCh := make(chan bool, 1)
+	reschedulingDoneCh := make(chan bool, 1)
 	migrator, err := m.NewMigrator(config.KubeConfigPath)
 	if err != nil {
 		fmt.Println("Error creating migrator:", err)
@@ -468,14 +487,53 @@ func main() {
 		fmt.Println("Error creating query client:", err)
 		return
 	}
-	if *is_tester {
+	// 启动一个goroutine来处理信号
+	// go func() {
+	// 	sig := <-sigChan
+	// 	fmt.Println("Received signal:", sig)
+	// 	cleanup(ctx, config, migrator, dataExporter)
+	// 	os.Exit(0)
+	// }()
+
+	// Start monitoring latency
+	if *mode == "monitoring" || *mode == "nodefailed" || *mode == "autoscaling" {
+		go monitorLatencyJaeger(ctx, config, dataExporter, thresholdInvokingCh, thresholdSatifiedCh, *qoeThreshold)
+	}
+	if *mode == "test" {
 		if *strategy == "rl" {
-			startOneReschedulingEpisode(ctx, config, migrator, httpClient, queryClient, *replica_cnt, dataExporter)
+			startOneReschedulingEpisode(ctx, config, migrator, httpClient, queryClient, dataExporter)
 		} else if *strategy == "be" {
 			recordBestEffortData(ctx, config, queryClient, dataExporter)
 		}
+	} else if *mode == "pod_distribution" {
+		if *strategy == "rl" {
+			recordPodReschedulingPodDistribution(ctx, config, queryClient, dataExporter, migrator, httpClient)
+		} else if *strategy == "be" {
+			recordPodBestEffortPodDistribution(ctx, config, queryClient, dataExporter, migrator)
+		}
+	} else if *mode == "monitoring" {
+		monitor(ctx, config, migrator, httpClient, queryClient, dataExporter, thresholdInvokingCh, reschedulingDoneCh)
+	} else if *mode == "nodefailed" {
+		time.Sleep(time.Duration(*stableStartTime) * time.Second)
+		dataExporter.WriteTS(time.Now().Unix(), 0, "", "", "", "", de.EXPERIMENT_START)
+		time.Sleep(time.Duration(*experimentWaitingTime) * time.Second)
+		go monitor(ctx, config, migrator, httpClient, queryClient, dataExporter, thresholdInvokingCh, reschedulingDoneCh)
+		nodeFailedCase(ctx, config, migrator, queryClient, dataExporter, reschedulingDoneCh, config.Namespace, config.AppLabel, *caseWaitingTime, *afterWaitTime, []string{*targetNodeA, *targetNodeB})
+	} else if *mode == "autoscaling" {
+		go autoscalingCase(ctx, config, migrator, queryClient, dataExporter, reschedulingDoneCh, config.Namespace, int32(*targetReplica))
+		monitor(ctx, config, migrator, httpClient, queryClient, dataExporter, thresholdInvokingCh, reschedulingDoneCh)
 	} else {
-		// Start Monitoring Loop
-		monitor(ctx, config, migrator, httpClient, queryClient, *replica_cnt, thresholdInvokingCh)
+		fmt.Println("Invalid mode")
 	}
 }
+
+// func cleanup(ctx context.Context, config *Config, migrator *m.Migrator, dataExporter *de.DataExporter) {
+// 	logger := klog.FromContext(ctx)
+// 	aggregator, detection, ml, db, err := GetPodDistribution(ctx, config, migrator)
+// 	if err != nil {
+// 		logger.Error(err, "Failed to get pod distribution")
+// 		return
+// 	}
+// 	// dataExporter.WriteTSWithPodPlacement(time.Now().Unix(), 0, "", "", "", aggregator, detection, ml, db, de.POD_DISTRO)
+// 	logger.V(1).Info("Cleanup done, write final pod distribution")
+// }
