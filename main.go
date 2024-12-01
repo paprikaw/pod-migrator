@@ -323,7 +323,6 @@ func getValidTraces(ctx context.Context, config *Config, maximumTraceCount int, 
 
 func monitorLatencyJaeger(ctx context.Context, config *Config, dataExporter *de.DataExporter, thresholdInvokingCh chan bool, thresholdSatifiedCh chan bool, qoeThreshold int) {
 	lastUpdateTime := time.Now()
-	lastLatency := estimatedRT.Get()
 	for {
 		logger := klog.FromContext(ctx)
 		// Get all the traces that is from now, maximum 20 traces
@@ -336,24 +335,19 @@ func monitorLatencyJaeger(ctx context.Context, config *Config, dataExporter *de.
 			logger.V(0).Info("No valid traces found")
 			continue
 		}
-
+		cur_latency := latencies[0]
 		// Update and Calculate Estimated Moving Average
 		currentMA := estimatedRT.Get()
 		if currentMA == 0 {
-			currentMA = latencies[0].client_latency
+			currentMA = cur_latency.client_latency
 		} else {
 			// 更新移动平均值的函数
 			latency := currentMA
-			currentMA = (1-config.Alpha)*latency + config.Alpha*latencies[0].client_latency
+			currentMA = (1-config.Alpha)*latency + config.Alpha*cur_latency.client_latency
 		}
 		estimatedRT.Set(currentMA)
 
-		earliestTraceStartTime := latencies[0].traceStartTime
-		if !earliestTraceStartTime.Before(lastUpdateTime) && currentMA != lastLatency {
-			dataExporter.WriteTS(earliestTraceStartTime.Unix(), currentMA, "", "", "", "", de.LATENCY)
-			lastUpdateTime = earliestTraceStartTime
-			lastLatency = currentMA
-		}
+		dataExporter.WriteTS(cur_latency.traceStartTime.Unix(), currentMA, "", "", "", "", de.LATENCY)
 
 		// 通知其他线程进行迁移
 		if currentMA > float64(qoeThreshold) {
@@ -373,40 +367,63 @@ func monitorLatencyJaeger(ctx context.Context, config *Config, dataExporter *de.
 	}
 }
 
-func monitorLatencyHttp(ctx context.Context, config *Config, dataExporter *de.DataExporter, queryClient *q.QueryClient, thresholdInvokingCh chan bool, thresholdSatifiedCh chan bool) {
+func monitorLatencyHttp(ctx context.Context, config *Config, dataExporter *de.DataExporter, queryClient *q.QueryClient, thresholdInvokingCh chan bool, thresholdSatifiedCh chan bool, qoeThreshold int) {
+	logger := klog.FromContext(ctx)
 	// 新建一个http client，准备进行http请求
+	responseBody := struct {
+		Latency   float64 `json:"service_calling_latency"`
+		TimeStamp int64   `json:"timestamp"`
+	}{}
 	httpClient := &http.Client{
 		Timeout: 1 * time.Second,
 	}
 	url := config.EntryServiceURL
-	logger := klog.FromContext(ctx)
-	pollingPeriod := config.PollingPeriod
+	// pollingPeriod := config.PollingPeriod
 	waitForPodReady(ctx, config, queryClient)
 	for {
 		// 计算延迟
-		startTime := time.Now()
-		_, err := httpClient.Get(url)
+		resp, err := httpClient.Get(url)
 		if err != nil {
 			logger.Error(err, "Failed to get entry service")
+			continue
 		}
-		latency := time.Since(startTime)
-		currentMA := estimatedRT.Get()
-		if currentMA == 0 {
-			currentMA = float64(latency.Milliseconds())
-		} else {
-			// 更新移动平均值的函数
-			currentLatency := currentMA
-			currentMA = (1-config.Alpha)*currentLatency + config.Alpha*float64(latency.Milliseconds())
+		// Ensure response body is closed
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			logger.Error(fmt.Errorf("unexpected status code: %d", resp.StatusCode), "Failed to get entry service")
+			continue
 		}
+
+		logger.V(2).Info("Get entry service response", "response", resp.Status)
+
+		// parse response
+		err = json.NewDecoder(resp.Body).Decode(&responseBody)
+		if err != nil {
+			logger.Error(err, "Failed to parse response")
+			continue
+		}
+
+		logger.Info("Service calling latency and timestamp received",
+			"latency", responseBody.Latency, "timestamp", responseBody.TimeStamp)
+
+		// currentMA := estimatedRT.Get()
+		// if currentMA == 0 {
+		// 	currentMA = float64(responseBody.Latency)
+		// } else {
+		// 	// 更新移动平均值的函数
+		// 	currentLatency := currentMA
+		// 	currentMA = (1-config.Alpha)*currentLatency + config.Alpha*float64(responseBody.Latency)
+		// }
 		// 更新 estimatedRT
-		estimatedRT.Set(currentMA)
-		dataExporter.WriteTS(startTime.Unix(), currentMA, "", "", "", "", de.LATENCY)
-		if currentMA > config.QosThreshold {
+		estimatedRT.Set(responseBody.Latency)
+		dataExporter.WriteTS(responseBody.TimeStamp, responseBody.Latency, "", "", "", "", de.LATENCY)
+
+		if responseBody.Latency > float64(qoeThreshold) {
 			select {
 			case thresholdInvokingCh <- true:
 			default:
 			}
-		} else if currentMA == 0 {
+		} else if float64(responseBody.Latency) == 0 {
 			continue
 		} else {
 			select {
@@ -414,7 +431,6 @@ func monitorLatencyHttp(ctx context.Context, config *Config, dataExporter *de.Da
 			default:
 			}
 		}
-		time.Sleep(pollingPeriod)
 	}
 }
 
@@ -497,7 +513,7 @@ func main() {
 
 	// Start monitoring latency
 	if *mode == "monitoring" || *mode == "nodefailed" || *mode == "autoscaling" {
-		go monitorLatencyJaeger(ctx, config, dataExporter, thresholdInvokingCh, thresholdSatifiedCh, *qoeThreshold)
+		go monitorLatencyHttp(ctx, config, dataExporter, queryClient, thresholdInvokingCh, thresholdSatifiedCh, *qoeThreshold)
 	}
 	if *mode == "test" {
 		if *strategy == "rl" {
@@ -517,13 +533,15 @@ func main() {
 		time.Sleep(time.Duration(*stableStartTime) * time.Second)
 		dataExporter.WriteTS(time.Now().Unix(), 0, "", "", "", "", de.EXPERIMENT_START)
 		time.Sleep(time.Duration(*experimentWaitingTime) * time.Second)
-		go monitor(ctx, config, migrator, httpClient, queryClient, dataExporter, thresholdInvokingCh, reschedulingDoneCh)
+		if *strategy == "rl" {
+			go monitor(ctx, config, migrator, httpClient, queryClient, dataExporter, thresholdInvokingCh, reschedulingDoneCh)
+		}
 		nodeFailedCase(ctx, config, migrator, queryClient, dataExporter, reschedulingDoneCh, config.Namespace, config.AppLabel, *caseWaitingTime, *afterWaitTime, []string{*targetNodeA, *targetNodeB})
 	} else if *mode == "autoscaling" {
 		go autoscalingCase(ctx, config, migrator, queryClient, dataExporter, reschedulingDoneCh, config.Namespace, int32(*targetReplica))
 		monitor(ctx, config, migrator, httpClient, queryClient, dataExporter, thresholdInvokingCh, reschedulingDoneCh)
-	} else {
-		fmt.Println("Invalid mode")
+	} else if *mode == "debug" {
+
 	}
 }
 
